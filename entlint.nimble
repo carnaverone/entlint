@@ -1,4 +1,3 @@
-# entlint.nimble
 version       = "0.1.1"
 author        = "carnaverone"
 description   = "Tiny entropy linter (Nim). Safe previews, no PCRE."
