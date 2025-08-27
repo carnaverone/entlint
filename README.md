@@ -1,18 +1,5 @@
 # entlint
 
-**Nim CLI – entropy linter.** Detect high-entropy blobs/lines (likely secrets) in files and repos.  
-Safe-by-default (no network, no raw content printed), **MIT** licensed.
-
-## Features
-- **Entropy scan (file / per-line)** with Shannon bits/byte
-- **Threshold** (default `--min 4.0`) to flag likely secrets
-- **Redacted preview** `--preview` (shows masked snippet, no raw leakage)
-- **Exclusions** `--exclude <pat>` (repeatable)
-- **JSON output** for CI and tooling
-- **Exit codes**: `0` no findings, `2` findings, `1` usage/error
-
----
-
 **FR** · Linter d’entropie (Nim) pour détecter des blobs / lignes à forte entropie (probables secrets).  
 **Safe-by-default** : pas de réseau, pas de contenu brut imprimé. **MIT**.
 
@@ -46,12 +33,11 @@ Linux/macOS :
 chmod +x entlint
 sudo install -m755 entlint /usr/local/bin/entlint
 
----
+Windows : place entlint.exe dans un dossier du PATH.
+B) Build from source
 
-## Install / Build
-```bash
 nimble build -d:release
-# resulting binary: ./entlint (or entlint.exe on Windows)
+# binaire: ./entlint (ou entlint.exe sur Windows)
 
 Usage
 
@@ -59,61 +45,95 @@ entlint --help
 entlint scan <path> [--min 4.0] [--lines] [--json] [--max-size 2097152] [--exclude <pat>]... [--preview]
 entlint file <file> [--min 4.0] [--lines] [--json] [--preview]
 
-Common flags
+Flags clés
 
-    --min <f> entropy threshold in bits/byte (default 4.0)
+    --min <f> seuil entropie en bits/byte (défaut 4.0)
 
-    --lines also analyze per-line (for text files)
+    --lines analyse par-ligne (pour fichiers texte)
 
-    --json machine-friendly output
+    --json sortie machine (CI)
 
-    --max-size skip files larger than N bytes (default 2 MiB) in scan
+    --max-size ignore fichiers > N octets (défaut 2 MiB en scan)
 
-    --exclude skip paths containing <pat> (repeatable)
+    --exclude exclut les chemins contenant <pat> (répéter)
 
-    --preview show redacted snippet for line findings (no raw alphanumerics)
+    --preview montre un aperçu masqué pour les lignes signalées (aucun contenu brut)
 
-Examples
+Exemples
 
-# quick repo scan (metadata only)
+# scan repo, uniquement métadonnées
 entlint scan . --lines
 
-# scan with redacted preview and exclusions
+# avec aperçu masqué et exclusions
 entlint scan . --lines --preview --exclude node_modules --exclude dist
 
-# per-file check, JSON output (good for CI)
+# fichier unique, JSON (pour CI)
 entlint file .env --json
 
-# strict threshold
+# seuil plus strict
 entlint scan src --min 4.2
 
-CI
+Codes de sortie
 
-This repo ships:
+    0 = aucun finding
 
-    .github/workflows/test.yml – runs nimble build + nimble test on push/PR
+    2 = findings présents
 
-    .github/workflows/release.yml – builds binaries for Linux/macOS/Windows and
-    attaches them to a GitHub Release when you push a tag v*
-
-Create a release from the UI or:
-
-git tag v0.1.1 && git push origin v0.1.1
+    1 = erreur / mauvais usage
 
 Ethics & Limits
 
-    Offline-only; prints metadata (path/line/entropy), no raw content by default.
+    Offline-only ; imprime métadonnées (chemin/ligne/entropie), pas de contenu brut.
 
-    --preview shows a redacted snippet to avoid secret leakage.
+    --preview affiche un aperçu masqué (letters/digits → *) pour éviter les fuites.
 
-    Use on code you own or are authorized to audit.
+    À utiliser uniquement sur du code autorisé (propriété ou mandat d’audit).
 
-    Treat exit code 2 as a policy violation in CI.
+    En CI, traitez le code retour 2 comme une violation de politique.
 
-See also: SECURITY.md
-and DISCLAIMER.md
+Voir aussi : SECURITY.md
+et DISCLAIMER.md
 
 .
+CI
+Tests (automatique sur push/PR)
+
+    .github/workflows/test.yml : build + nimble test.
+
+Release (binaries attachés)
+
+    .github/workflows/release.yml : build Linux/macOS/Windows et attache sur Release.
+
+Créer une release :
+
+    via UI (Releases → Draft a new release) avec tag v0.1.1, ou
+
+    via CLI :
+
+git tag v0.1.1 && git push origin v0.1.1
+
+Pre-commit hook (optionnel)
+
+Empêche de committer si findings :
+
+# .git/hooks/pre-commit (chmod +x)
+#!/usr/bin/env bash
+set -euo pipefail
+tmp=$(mktemp -d)
+git diff --cached --name-only -z | xargs -0 -I{} sh -c 'd=$(dirname "{}"); mkdir -p "'"$tmp"'/$d"; cp "{}" "'"$tmp"'/{}
+'
+./entlint scan "$tmp" --lines --json >/dev/null || rc=$?
+rm -rf "$tmp"
+[ "${rc:-0}" -eq 2 ] && echo "entlint: potential secrets found" && exit 1 || exit 0
+
+Roadmap
+
+    --sarif pour GitHub Code Scanning.
+
+    Seuils par extension (réduire le bruit sur binaires/archives).
+
+    .entlintignore (globs).
+
 License
 
 MIT © Carnaverone
