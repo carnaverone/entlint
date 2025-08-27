@@ -41,7 +41,7 @@ proc previewRedact(s: string; maxChars = 24): string =
   ## Keep visual structure but redact alphanumerics; show only first maxChars.
   if s.len == 0: return ""
   let t = if s.len <= maxChars: s else: s[0 ..< maxChars]
-  var buf = newString(t.len)              # <- renommé: évite le mot-clé `out`
+  var buf = newString(t.len)              # évite le mot-clé réservé `out` (Nim 2)
   for i, c in t:
     buf[i] = (if c.isAlphaNumeric: '*' else: c)
   result = buf & (if s.len > t.len: "…" else: "")
@@ -96,15 +96,13 @@ proc scanFile(path: string; minH: float; perLine: bool; jsonOut: bool): (int, se
 
   (findings.len, findings)
 
-proc scanTree(root: string; minH: float; perLine: bool; jsonOut: bool; maxSize: int; excludes: seq[string]): (int, seq[Finding]) =
+proc scanTree(root: string; minH: float; perLine: bool; jsonOut: bool;
+              maxSize: int; excludes: seq[string]): (int, seq[Finding]) =
   var total = 0
   var all: seq[Finding] = @[]
 
-  for path in walkDirRec(root, {pcFile}, yieldFilter = proc (k: PathComponent): bool =
-    let name = k.path.splitPath.tail
-    if name in [".git", "node_modules", "zig-cache", "zig-out", "target", "dist", "build"]: return false
-    true
-  ):
+  # 👉 ici: on ne passe plus de prédicat; on ne rend QUE les fichiers
+  for path in walkDirRec(root, {pcFile}):
     if shouldSkip(path, maxSize, excludes): continue
     let (n, f) = scanFile(path, minH, perLine, jsonOut)
     total += n
