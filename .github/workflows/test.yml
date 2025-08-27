@@ -1,7 +1,5 @@
 name: test
-on:
-  push:
-  pull_request:
+on: [push, pull_request]
 
 jobs:
   test:
@@ -11,5 +9,5 @@ jobs:
       - uses: jiro4989/setup-nim-action@v1
         with:
           nim-version: stable
-      - run: nimble build -d:release
-      - run: nimble test
+      - run: nim --version
+      - run: nimble test -y
