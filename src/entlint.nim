@@ -34,18 +34,15 @@ proc shannonEntropy(s: string): float =
 proc safeSnippet(s: string, start: int, win: int): string =
   let a = max(0, start)
   let b = min(s.len, a + win)
-  # échappe guillemets et contrôle
   result = s[a ..< b]
   result = result.replace("\"", "'").replace("\n", " ").replace("\r", " ")
 
 proc findPreview(s: string; win = 32; thr = 7.5): string =
-  # renvoie la première fenêtre avec entropie >= thr, sinon ""
   var i = 0
   while i + win <= s.len:
     let e = shannonEntropy(s[i ..< i+win])
     if e >= thr: return safeSnippet(s, i, win)
     inc i, 1
-  # si rien trouvé, tente une fenêtre à la fin
   if s.len > 0 and s.len < win and shannonEntropy(s) >= thr:
     return safeSnippet(s, 0, s.len)
   return ""
@@ -53,7 +50,6 @@ proc findPreview(s: string; win = 32; thr = 7.5): string =
 # -------- file analysis --------
 
 proc shouldSkipPath(p: string): bool =
-  # ignore dossiers volumineux/binaries courants
   let n = p.normalizePath
   return (n.containsDir(".git") or n.containsDir("node_modules") or
           n.containsDir("zig-cache") or n.containsDir("zig-out") or
@@ -73,18 +69,15 @@ proc analyzeFile(path: string; thr: float; wantPreview, wantLines: bool) =
       echo "lines=", lc
     if wantPreview:
       var pv = findPreview(data, 32, thr)
-      # Toujours imprimer preview="", même si rien trouvé (pour les tests)
       if pv.len == 0: pv = ""
       echo "preview=\"", pv, "\""
   except CatchableError as err:
-    # on log mais on n'explose pas la CLI
     echo "file=", path
     echo "error=", err.msg
 
 # -------- CLI parsing --------
 
 proc parseEq(arg, name: string; val: var string; i: var int; args: seq[string]): bool =
-  # gère --name=VAL ou --name VAL
   let prefix = "--" & name & "="
   if arg == "--" & name:
     if i + 1 < args.len:
@@ -116,19 +109,17 @@ proc main() =
     elif a == "--lines":
       wantLines = true
     else:
-      var s: string
-      if parseEq(a, "path", s, i, args): root = s
-      elif parseEq(a, "threshold", s, i, args):
-        try: threshold = parseFloat(s)
-        except ValueError: quit "invalid --threshold value: " & s, 1
+      var sval: string
+      if parseEq(a, "path", sval, i, args): root = sval
+      elif parseEq(a, "threshold", sval, i, args):
+        try: threshold = parseFloat(sval)
+        except ValueError: quit "invalid --threshold value: " & sval, 1
       else:
         quit "unknown option: " & a & "\nUse --help.", 1
     inc i
 
-  # scan récursif
   for p in walkDirRec(root):
     if shouldSkipPath(p): continue
-    # on n’analyse que les fichiers réguliers
     try:
       if fileExists(p): analyzeFile(p, threshold, wantPreview, wantLines)
     except CatchableError:
