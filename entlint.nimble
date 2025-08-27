@@ -5,8 +5,10 @@ description   = "Tiny entropy linter (Nim). Safe previews, no PCRE."
 license       = "MIT"
 srcDir        = "src"
 bin           = @["entlint"]
-# Nim 1.6+ ok, testé sur Nim 2.2.x
-requires      = "nim >= 1.6.0"
 
+# ⚠️ Directive (pas d'égalité ici)
+requires "nim >= 1.6.0"
+
+# Task de test (utilisée par CI 'nimble test')
 task test, "Run tests":
   exec "nim c -r -d:release tests/test_cli.nim"
