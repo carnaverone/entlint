@@ -12,7 +12,6 @@ Safe-by-default (no network, no raw content printed), **MIT** licensed.
 - **Exit codes**: `0` no findings, `2` findings, `1` usage/error
 
 ---
-# entlint
 
 **FR** · Linter d’entropie (Nim) pour détecter des blobs / lignes à forte entropie (probables secrets).  
 **Safe-by-default** : pas de réseau, pas de contenu brut imprimé. **MIT**.
