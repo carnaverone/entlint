@@ -1,8 +1,17 @@
 # entlint
-## Ethics & Limits
-- Offline-only; prints **metadata** only (no raw content).
-- Use on code you **own** or are **authorized** to audit.
-- `--preview` shows a **redacted** snippet to avoid leaking secrets.
-- In CI, prefer `--json` and fail on exit code `2` (policy violations).
 
-Entropy linter (Nim). Detects high-entropy blobs/lines (likely secrets). MIT.
+**Nim CLI – entropy linter.** Detect high-entropy blobs/lines (likely secrets) in files and repos.  
+Safe-by-default (no network, no raw content printed), **MIT** licensed.
+
+## Features
+- **Entropy scan (file / per-line)** with Shannon bits/byte
+- **Threshold** (default `--min 4.0`) to flag likely secrets
+- **Redacted preview** `--preview` (shows masked snippet, no raw leakage)
+- **Exclusions** `--exclude <pat>` (repeatable)
+- **JSON output** for CI and tooling
+- **Exit codes**: `0` no findings, `2` findings, `1` usage/error
+
+## Install / Build
+```bash
+nimble build -d:release
+# resulting binary: ./entlint (or entlint.exe on Windows)
