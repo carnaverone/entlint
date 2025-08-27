@@ -1,13 +1,28 @@
-import std/[os, osproc, strformat, strutils, re]
+import std/[os, osproc, strutils]
 
 proc runExit(cmd: string; args: seq[string]): int =
   var p = startProcess(cmd, args = args, options = {poStdErrToStdOut, poUsePath})
-  let code = waitForExit(p)   # Nim 2: récupère le code ici
-  close(p)                    # ferme le process proprement
+  let code = waitForExit(p)
+  close(p)
   code
 
 proc runOut(cmd: string; args: seq[string]): string =
   execProcess(cmd, args = args, options = {poStdErrToStdOut, poUsePath})
+
+proc hasAnyAlnum(s: string): bool =
+  for c in s:
+    if c.isAlphaNumeric: return true
+  false
+
+proc firstPreviewSnippet(s: string): string =
+  ## extrait la première valeur entre preview="…"
+  let k = "preview=\""
+  let i = s.find(k)
+  if i < 0: return ""
+  let start = i + k.len
+  let j = s.find('"', start)
+  if j < 0: return s[start..^1]
+  s[start ..< j]
 
 when isMainModule:
   # build du binaire à tester
@@ -19,10 +34,12 @@ when isMainModule:
   doAssert out1.contains("sample.txt")
   doAssert not out1.contains("MYSECRET")   # ne doit pas apparaître
 
-  # 2) avec --preview : aperçu masqué (aucun alphanum)
+  # 2) avec --preview : aperçu MASQUÉ uniquement (pas d’alphanum dans le snippet)
   let out2 = runOut("./entlint", @["file", "sample.txt", "--lines", "--preview"])
   doAssert out2.contains("preview=\"")
-  doAssert not contains(out2, re"[A-Za-z0-9]")
+  let snippet = firstPreviewSnippet(out2)
+  doAssert snippet.len > 0
+  doAssert not hasAnyAlnum(snippet)        # le snippet lui-même est masqué
 
   # 3) exclusions fonctionnent
   createDir("dist")
