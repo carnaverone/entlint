@@ -11,6 +11,44 @@ Safe-by-default (no network, no raw content printed), **MIT** licensed.
 - **JSON output** for CI and tooling
 - **Exit codes**: `0` no findings, `2` findings, `1` usage/error
 
+---
+# entlint
+
+**FR** · Linter d’entropie (Nim) pour détecter des blobs / lignes à forte entropie (probables secrets).  
+**Safe-by-default** : pas de réseau, pas de contenu brut imprimé. **MIT**.
+
+**EN** · Entropy linter (Nim) to detect high-entropy blobs/lines (likely secrets) in files and repos.  
+Safe-by-default: no network, no raw content printed. **MIT**.
+
+[![Build (test)](https://github.com/carnaverone/entlint/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/carnaverone/entlint/actions/workflows/test.yml)
+[![Latest release](https://img.shields.io/github/v/release/carnaverone/entlint?display_name=tag)](https://github.com/carnaverone/entlint/releases)
+[![Downloads](https://img.shields.io/github/downloads/carnaverone/entlint/total)](https://github.com/carnaverone/entlint/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+---
+
+## Features
+- **Entropy scan** (file / per-line) via Shannon bits/byte.
+- **Threshold** `--min 4.0` (par défaut) pour signaler le “suspect”.
+- **Redacted preview** `--preview` : aperçu **masqué** (aucun alphanum brut).
+- **Exclusions** `--exclude <pat>` répétables.
+- **JSON output** pour CI/outillage.
+- **Exit codes** : `0` (OK), `2` (findings), `1` (usage/erreur).
+
+---
+
+## Install
+
+### A) Binaires (recommandé)
+Télécharge pour Linux/macOS/Windows : **[Releases](https://github.com/carnaverone/entlint/releases)**.
+
+Linux/macOS :
+```bash
+chmod +x entlint
+sudo install -m755 entlint /usr/local/bin/entlint
+
+---
+
 ## Install / Build
 ```bash
 nimble build -d:release
