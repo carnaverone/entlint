@@ -1,245 +1,138 @@
-# entlint: tiny entropy linter (MIT) — "safe by default"
-# Nim stdlib only. Works with Nim 1.6+ and 2.x.
-# No external deps; JSON/plain output; exit code 0 = clean, 2 = findings.
-# Author: carnaverone
+import std/[os, strutils, math, times, sequtils]
 
-import std/[os, strutils, sequtils, math, json]
-
-# ---------- entropy helpers ----------
-
-proc entropyStr(s: string): float =
-  ## Shannon entropy (bits per byte) computed on raw bytes of the string
-  if s.len == 0: return 0.0
-  var freq: array[256, int]
-  for ch in s: inc freq[ord(ch)]
-  let n = s.len.float
-  var h = 0.0
-  for c in freq:
-    if c == 0: continue
-    let p = c.float / n
-    h -= p * (ln(p) / ln(2.0))
-  result = h
-
-proc isLikelyText(s: string): bool =
-  ## Heuristic: consider a string "texty" if most bytes are printable/newline/tab.
-  if s.len == 0: return true
-  var good = 0
-  for ch in s:
-    if ch == '\n' or ch == '\r' or ch == '\t' or (ch >= ' ' and ch <= '~'):
-      inc good
-  result = good.float / s.len.float >= 0.85
-
-# ---------- preview helper (ethics-by-design) ----------
-
-proc previewRedact(s: string; maxChars = 24): string =
-  ## Keep visual structure but redact alphanumerics; show only first maxChars.
-  if s.len == 0: return ""
-  let t = if s.len <= maxChars: s else: s[0 ..< maxChars]
-  var buf = newString(t.len)              # avoid reserved word `out` in Nim 2
-  for i, c in t:
-    buf[i] = (if c.isAlphaNumeric: '*' else: c)
-  result = buf & (if s.len > t.len: "…" else: "")
-
-# ---------- model ----------
-
-type Finding = object
-  path: string
-  kind: string       # "file" or "line"
-  line: int          # 1-based for lines, 0 for file
-  entropy: float
-  size: int
-
-proc toJsonNode(f: Finding): JsonNode =
-  %*{"path": f.path, "kind": f.kind, "line": f.line, "entropy": f.entropy, "size": f.size}
-
-# ---------- scanning ----------
-
-proc shouldSkip(path: string; maxSize: int; excludes: seq[string]): bool =
-  let base = splitFile(path).name
-  if base == ".DS_Store": return true
-  for pat in excludes:
-    if path.contains(pat): return true
-  try:
-    let s = getFileSize(path)
-    if s > maxSize: return true
-  except CatchableError:
-    return true
-  false
-
-proc scanFile(path: string; minH: float; perLine: bool): (int, seq[Finding]) =
-  ## Returns (#findings, list)
-  var findings: seq[Finding] = @[]
-  var content: string
-  try:
-    content = slurp(path)
-  except CatchableError:
-    return (0, @[])
-
-  # File-level entropy (always)
-  let hfile = entropyStr(content)
-  if hfile >= minH and content.len >= 64:
-    findings.add Finding(path: path, kind: "file", line: 0, entropy: hfile, size: content.len)
-
-  # Line-level entropy (text files only, if requested)
-  if perLine and isLikelyText(content):
-    let lines = content.splitLines
-    for i, ln in lines:
-      if ln.len == 0: continue
-      let h = entropyStr(ln)
-      if h >= minH and ln.len >= 16:
-        findings.add Finding(path: path, kind: "line", line: i+1, entropy: h, size: ln.len)
-
-  (findings.len, findings)
-
-# ---------- CLI ----------
+const Version = "0.1.1"
 
 proc usage() =
-  echo """
-entlint — entropy linter (Nim, MIT)
-
+  echo "entlint v", Version, """
 Usage:
-  entlint scan <path> [--min 4.0] [--lines] [--json] [--max-size 2097152] [--exclude <pat>]... [--preview]
-  entlint file <file> [--min 4.0] [--lines] [--json] [--preview]
-  entlint --help
+  entlint [--path DIR] [--threshold N] [--preview] [--lines] [--help] [--version]
 
 Options:
-  --min <f>      threshold in bits/byte (default 4.0)
-  --lines        also analyze per-line (text files)
-  --json         JSON output (machine friendly)
-  --max-size <n> skip files larger than N bytes (default 2 MiB for scan)
-  --exclude <p>  skip paths containing <p> (repeatable)
-  --preview      redact-and-show short line preview (safe by default)
+  --path DIR        root directory to scan (default: ".")
+  --threshold N     Shannon entropy threshold (default: 7.5)
+  --preview         print preview="..." for first high-entropy hit per file
+  --lines           also print lines=COUNT
+  --version         print version and exit
+  --help            show this help and exit
 """
 
-when isMainModule:
-  var minH = 4.0
-  var perLine = false
-  var jsonOut = false
-  var maxSize = 2 * 1024 * 1024
-  var excludes: seq[string] = @[]
-  var showPreview = false
+# -------- entropy helpers --------
+
+proc shannonEntropy(s: string): float =
+  if s.len == 0: return 0.0
+  var counts: array[256, int]
+  for ch in s:
+    inc counts[ord(ch) and 0xff]
+  let n = s.len.float
+  var e = 0.0
+  for c in counts:
+    if c > 0:
+      let p = c.float / n
+      e -= p * (ln(p) / ln(2.0))
+  return e
+
+proc safeSnippet(s: string, start: int, win: int): string =
+  let a = max(0, start)
+  let b = min(s.len, a + win)
+  # échappe guillemets et contrôle
+  result = s[a ..< b]
+  result = result.replace("\"", "'").replace("\n", " ").replace("\r", " ")
+
+proc findPreview(s: string; win = 32; thr = 7.5): string =
+  # renvoie la première fenêtre avec entropie >= thr, sinon ""
+  var i = 0
+  while i + win <= s.len:
+    let e = shannonEntropy(s[i ..< i+win])
+    if e >= thr: return safeSnippet(s, i, win)
+    inc i, 1
+  # si rien trouvé, tente une fenêtre à la fin
+  if s.len > 0 and s.len < win and shannonEntropy(s) >= thr:
+    return safeSnippet(s, 0, s.len)
+  return ""
+
+# -------- file analysis --------
+
+proc shouldSkipPath(p: string): bool =
+  # ignore dossiers volumineux/binaries courants
+  let n = p.normalizePath
+  return (n.containsDir(".git") or n.containsDir("node_modules") or
+          n.containsDir("zig-cache") or n.containsDir("zig-out") or
+          n.containsDir("target") or n.containsDir("dist") or
+          n.containsDir("build") or n.containsDir(".cache"))
+
+proc analyzeFile(path: string; thr: float; wantPreview, wantLines: bool) =
+  try:
+    if getFileSize(path) == 0: return
+    let data = readFile(path)
+    let e = shannonEntropy(data)
+    let flag = if e >= thr: "HIGH" else: "OK"
+    echo "file=", path
+    echo "entropy=", formatFloat(e, ffDecimal, 3), " flag=", flag
+    if wantLines:
+      let lc = if data.len == 0: 0 else: data.count('\n') + 1
+      echo "lines=", lc
+    if wantPreview:
+      var pv = findPreview(data, 32, thr)
+      # Toujours imprimer preview="", même si rien trouvé (pour les tests)
+      if pv.len == 0: pv = ""
+      echo "preview=\"", pv, "\""
+  except CatchableError as err:
+    # on log mais on n'explose pas la CLI
+    echo "file=", path
+    echo "error=", err.msg
+
+# -------- CLI parsing --------
+
+proc parseEq(arg, name: string; val: var string; i: var int; args: seq[string]): bool =
+  # gère --name=VAL ou --name VAL
+  let prefix = "--" & name & "="
+  if arg == "--" & name:
+    if i + 1 < args.len:
+      val = args[i+1]; inc i, 1
+      return true
+    else:
+      quit "missing value for --" & name, 1
+  elif arg.startsWith(prefix):
+    val = arg[prefix.len .. ^1]
+    return true
+  return false
+
+proc main() =
+  var root = "."
+  var threshold = 7.5
+  var wantPreview = false
+  var wantLines = false
 
   let args = commandLineParams()
-  if args.len == 0 or args[0] in ["-h", "--help"]:
-    usage(); quit(0)
-
   var i = 0
-  template next(): string =
-    inc i; if i >= args.len: quit(1); args[i]
-
-  let cmd = args[i]
-  inc i
-
-  # parse common flags after subcommand
-  while i < args.len and args[i].startsWith("--"):
-    case args[i]
-    of "--lines": perLine = true
-    of "--json":  jsonOut = true
-    of "--preview": showPreview = true
-    of "--min":
-      let v = next()
-      try: minH = parseFloat(v)
-      except ValueError: quit(1)
-    of "--max-size":
-      let v = next()
-      try: maxSize = parseInt(v)
-      except ValueError: quit(1)
-    of "--exclude":
-      excludes.add next()
+  while i < args.len:
+    let a = args[i]
+    if a == "--help" or a == "-h":
+      usage(); quit(0)
+    elif a == "--version":
+      echo Version; quit(0)
+    elif a == "--preview":
+      wantPreview = true
+    elif a == "--lines":
+      wantLines = true
     else:
-      break
+      var s: string
+      if parseEq(a, "path", s, i, args): root = s
+      elif parseEq(a, "threshold", s, i, args):
+        try: threshold = parseFloat(s)
+        except ValueError: quit "invalid --threshold value: " & s, 1
+      else:
+        quit "unknown option: " & a & "\nUse --help.", 1
     inc i
 
-  if cmd == "file":
-    if i >= args.len: usage(); quit(1)
-    let file = args[i]
-    if not fileExists(file): stderr.writeLine "missing file: ", file; quit(1)
-    let (n, findings) = scanFile(file, minH, perLine)
+  # scan récursif
+  for p in walkDirRec(root):
+    if shouldSkipPath(p): continue
+    # on n’analyse que les fichiers réguliers
+    try:
+      if fileExists(p): analyzeFile(p, threshold, wantPreview, wantLines)
+    except CatchableError:
+      discard
 
-    if jsonOut:
-      var arr = newSeq[JsonNode]()
-      for f in findings:
-        var node = f.toJsonNode()
-        if showPreview and f.kind == "line":
-          # load the specific line again for preview
-          try:
-            let content = slurp(file)
-            let lines = content.splitLines
-            if f.line > 0 and f.line <= lines.len:
-              node["preview"] = %previewRedact(lines[f.line - 1])
-          except CatchableError:
-            discard
-        arr.add node
-      echo %*{"file": file, "findings": arr, "count": n}
-    else:
-      if findings.len == 0:
-        echo "No findings"
-      else:
-        # compute lines if we need preview for lines
-        var lines: seq[string] = @[]
-        if showPreview and perLine:
-          try: lines = slurp(file).splitLines
-          except CatchableError: lines = @[]
-        for x in findings:
-          if x.kind == "file":
-            echo "[FILE] ", x.path, " ent=", formatFloat(x.entropy, ffDecimal, 3), " size=", x.size
-          else:
-            var pv = ""
-            if showPreview and lines.len > 0 and x.line > 0 and x.line <= lines.len:
-              pv = previewRedact(lines[x.line - 1])
-            if showPreview and pv.len > 0:
-              echo "[LINE] ", x.path, ":", x.line, " ent=", formatFloat(x.entropy, ffDecimal, 3), " preview=\"", pv, "\""
-            else:
-              echo "[LINE] ", x.path, ":", x.line, " ent=", formatFloat(x.entropy, ffDecimal, 3)
-    quit(if findings.len == 0: 0 else: 2)
-
-  elif cmd == "scan":
-    if i >= args.len: usage(); quit(1)
-    let root = args[i]
-    if not dirExists(root): stderr.writeLine "missing directory: ", root; quit(1)
-
-    var all: seq[Finding] = @[]
-    for p in walkDirRec(root, {pcFile}):   # Nim 2.x signature
-      if shouldSkip(p, maxSize, excludes): continue
-      let (n, f) = scanFile(p, minH, perLine)
-      if n > 0: all.add f
-
-    if jsonOut:
-      var arr = newSeq[JsonNode]()
-      for f in all:
-        var node = f.toJsonNode()
-        if showPreview and f.kind == "line":
-          try:
-            let content = slurp(f.path)
-            let lines = content.splitLines
-            if f.line > 0 and f.line <= lines.len:
-              node["preview"] = %previewRedact(lines[f.line - 1])
-          except CatchableError:
-            discard
-        arr.add node
-      echo %*{"root": root, "findings": arr, "count": all.len}
-    else:
-      if all.len == 0:
-        echo "No findings"
-      else:
-        for x in all:
-          if x.kind == "file":
-            echo "[FILE] ", x.path, " ent=", formatFloat(x.entropy, ffDecimal, 3), " size=", x.size
-          else:
-            var pv = ""
-            if showPreview:
-              try:
-                let ls = slurp(x.path).splitLines
-                if x.line > 0 and x.line <= ls.len:
-                  pv = previewRedact(ls[x.line - 1])
-              except CatchableError:
-                discard
-            if showPreview and pv.len > 0:
-              echo "[LINE] ", x.path, ":", x.line, " ent=", formatFloat(x.entropy, ffDecimal, 3), " preview=\"", pv, "\""
-            else:
-              echo "[LINE] ", x.path, ":", x.line, " ent=", formatFloat(x.entropy, ffDecimal, 3)
-        echo "Total findings: ", all.len
-    quit(if all.len == 0: 0 else: 2)
-
-  else:
-    usage(); quit(1)
+when isMainModule:
+  main()
