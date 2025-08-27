@@ -1,9 +1,18 @@
 name: release
+
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.1) — required if running manually'
+        required: true
+        default: 'v0.0.0-dev'
+
+permissions:
+  contents: write    # needed to create/upload a GitHub Release
 
 jobs:
   build:
@@ -16,29 +25,54 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: jiro4989/setup-nim-action@v1
+
+      - name: Setup Nim
+        uses: jiro4989/setup-nim-action@v1
         with:
           nim-version: stable
-      - run: nim -v
+
+      - name: Show Nim
+        run: nim -v
+
+      - name: Resolve TAG
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          else
+            echo "TAG=${{ inputs.tag }}" >> $GITHUB_ENV
+          fi
 
       - name: Build
-      # binaire unique par OS
         shell: bash
         run: |
           mkdir -p dist
+          OS_ID=""
+          EXT=""
+          case "${{ matrix.os }}" in
+            ubuntu-latest) OS_ID="linux" ;;
+            macos-latest)  OS_ID="macos" ;;
+            windows-latest) OS_ID="windows"; EXT=".exe" ;;
+          esac
+          ARCH="$(uname -m)"
+          OUT="entlint-${TAG}-${OS_ID}-${ARCH}${EXT}"
+
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            nim c -d:release -o:dist/entlint.exe src/entlint.nim
+            nim c -d:release -o:dist/${OUT} src/entlint.nim
           else
-            nim c -d:release -o:dist/entlint src/entlint.nim
+            nim c -d:release -o:dist/${OUT} src/entlint.nim
           fi
 
-      - name: Checksums
-        shell: bash
-        run: |
+          # checksums
           cd dist
-          if command -v sha256sum >/dev/null 2>&1; then sha256sum * > SHA256SUMS; else shasum -a 256 * > SHA256SUMS; fi
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${OUT}" > "SHA256SUMS"
+          else
+            shasum -a 256 "${OUT}" > "SHA256SUMS"
+          fi
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: entlint-${{ matrix.os }}
           path: dist/*
@@ -46,10 +80,28 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - uses: softprops/action-gh-release@v2
+
+      - name: Resolve TAG (again)
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          else
+            echo "TAG=${{ inputs.tag }}" >> $GITHUB_ENV
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*,artifacts/**/SHA256SUMS
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/**/*
+            artifacts/**/SHA256SUMS
