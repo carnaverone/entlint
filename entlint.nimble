@@ -1,10 +1,12 @@
+# entlint.nimble
 version       = "0.1.1"
-author        = "Carnaverone"
-description   = "Entropy linter (Nim). Detect high-entropy blobs/lines (likely secrets). Safe-by-default."
+author        = "carnaverone"
+description   = "Tiny entropy linter (Nim). Safe previews, no PCRE."
 license       = "MIT"
 srcDir        = "src"
 bin           = @["entlint"]
+# Nim 1.6+ ok, testé sur Nim 2.2.x
+requires      = "nim >= 1.6.0"
 
-# Nimble task: tests
-task test, "run tests":
+task test, "Run tests":
   exec "nim c -r -d:release tests/test_cli.nim"
