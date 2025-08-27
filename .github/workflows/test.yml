@@ -9,5 +9,9 @@ jobs:
       - uses: jiro4989/setup-nim-action@v1
         with:
           nim-version: stable
-      - run: nim --version
-      - run: nimble test -y
+
+      - name: Prime Nimble index
+        run: nimble refresh -y
+
+      - name: Build & Test
+        run: nimble test -y
