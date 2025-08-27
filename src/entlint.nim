@@ -60,13 +60,18 @@ proc toJsonNode(f: Finding): JsonNode =
 
 # ---------- scanning ----------
 
+let builtinExcludes = @[
+  ".git", "node_modules", "zig-cache", "zig-out",
+  "target", "dist", "build"
+]
+
 proc shouldSkip(path: string; maxSize: int; excludes: seq[string]): bool =
   let base = splitFile(path).name
   if base == ".DS_Store": return true
   for pat in excludes:
     if path.contains(pat): return true
   try:
-    let s = getFileSize(path)
+    let s = int(getFileSize(path))     # normalise la taille sur int
     if s > maxSize: return true
   except CatchableError:
     return true
@@ -101,9 +106,10 @@ proc scanTree(root: string; minH: float; perLine: bool; jsonOut: bool;
   var total = 0
   var all: seq[Finding] = @[]
 
-  # 👉 ici: on ne passe plus de prédicat; on ne rend QUE les fichiers
+  # Nim 2: pas de prédicat dans walkDirRec; on filtre nous-mêmes
+  let allEx = builtinExcludes & excludes
   for path in walkDirRec(root, {pcFile}):
-    if shouldSkip(path, maxSize, excludes): continue
+    if shouldSkip(path, maxSize, allEx): continue
     let (n, f) = scanFile(path, minH, perLine, jsonOut)
     total += n
     if n > 0: all.add f
@@ -132,6 +138,13 @@ Options:
 Exit codes: 0 = no findings, 2 = findings, 1 = usage/error
 """
 
+# utilitaire arg parsing (évite le template qui cassait en Nim 2)
+proc nextArg(args: seq[string], i: var int): string =
+  i += 1
+  if i >= args.len:
+    quit(1)
+  result = args[i]
+
 when isMainModule:
   var minH = 4.0
   var perLine = false
@@ -145,11 +158,9 @@ when isMainModule:
     usage(); quit(0)
 
   var i = 0
-  template next(): string =
-    inc i; if i >= args.len: quit(1); args[i]
-
+  if i >= args.len: usage(); quit(1)
   let cmd = args[i]
-  inc i
+  i += 1
 
   while i < args.len and args[i].startsWith("--"):
     case args[i]
@@ -157,18 +168,18 @@ when isMainModule:
     of "--json":  jsonOut = true
     of "--preview": showPreview = true
     of "--min":
-      let v = next()
+      let v = nextArg(args, i)
       try: minH = parseFloat(v)
       except ValueError: quit(1)
     of "--max-size":
-      let v = next()
+      let v = nextArg(args, i)
       try: maxSize = parseInt(v)
       except ValueError: quit(1)
     of "--exclude":
-      excludes.add next()
+      excludes.add nextArg(args, i)
     else:
       stderr.writeLine "unknown flag: " & args[i]; quit(1)
-    inc i
+    i += 1
 
   if cmd == "file":
     if i >= args.len: usage(); quit(1)
