@@ -18,7 +18,7 @@ Options:
 
 # -------- entropy helpers --------
 
-proc shannonEntropy(s: string): float =
+proc shannonEntropy*(s: string): float =
   if s.len == 0: return 0.0
   var counts: array[256, int]
   for ch in s:
@@ -37,7 +37,7 @@ proc safeSnippet(s: string, start: int, win: int): string =
   result = s[a ..< b]
   result = result.replace("\"", "'").replace("\n", " ").replace("\r", " ")
 
-proc findPreview(s: string; win = 32; thr = 7.5): string =
+proc findPreview*(s: string; win = 32; thr = 7.5): string =
   var i = 0
   while i + win <= s.len:
     let e = shannonEntropy(s[i ..< i+win])
