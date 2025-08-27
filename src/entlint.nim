@@ -4,17 +4,17 @@ const Version = "0.1.1"
 
 proc usage() =
   echo "entlint v", Version, """
-Usage:
-  entlint [--path DIR] [--threshold N] [--preview] [--lines] [--help] [--version]
+  Usage:
+    entlint [--path DIR] [--threshold N] [--preview] [--lines] [--help] [--version]
 
-Options:
-  --path DIR        root directory to scan (default: ".")
-  --threshold N     Shannon entropy threshold (default: 7.5)
-  --preview         print preview=\"...\" for first high-entropy hit per file
-  --lines           also print lines=COUNT
-  --version         print version and exit
-  --help            show this help and exit
-"""
+  Options:
+    --path DIR        root directory to scan (default: ".")
+    --threshold N     Shannon entropy threshold (default: 7.5)
+    --preview         print preview=\"...\" for first high-entropy hit per file
+    --lines           also print lines=COUNT
+    --version         print version and exit
+    --help            show this help and exit
+  """
 
 # -------- entropy helpers --------
 
@@ -50,10 +50,11 @@ proc findPreview*(s: string; win = 32; thr = 7.5): string =
 # -------- file analysis --------
 
 proc shouldSkipPath(p: string): bool =
-  # Vérifie juste si le chemin contient l'un des dossiers à ignorer
-  for dir in [".git", "node_modules", "zig-cache", "zig-out", "target", "dist", "build", ".cache"]:
-    if dir in p: return true
-  return false
+  let n = p
+  return (n.contains(".git") or n.contains("node_modules") or
+          n.contains("zig-cache") or n.contains("zig-out") or
+          n.contains("target") or n.contains("dist") or
+          n.contains("build") or n.contains(".cache"))
 
 proc analyzeFile(path: string; thr: float; wantPreview, wantLines: bool) =
   try:
