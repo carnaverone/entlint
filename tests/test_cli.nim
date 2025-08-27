@@ -1,15 +1,16 @@
 import std/[os, osproc, strformat, strutils, re]
 
 proc runExit(cmd: string; args: seq[string]): int =
-  let p = startProcess(cmd, args=args, options={poStdErrToStdOut, poUsePath})
-  discard p.waitForExit()
-  result = p.exitCode
+  var p = startProcess(cmd, args = args, options = {poStdErrToStdOut, poUsePath})
+  let code = waitForExit(p)   # Nim 2: récupère le code ici
+  close(p)                    # ferme le process proprement
+  code
 
 proc runOut(cmd: string; args: seq[string]): string =
-  result = execProcess(cmd, args=args, options={poStdErrToStdOut, poUsePath})
+  execProcess(cmd, args = args, options = {poStdErrToStdOut, poUsePath})
 
 when isMainModule:
-  # build binaire
+  # build du binaire à tester
   discard runExit("nimble", @["build", "-d:release"])
 
   # 1) pas de fuite de contenu sans --preview
@@ -18,24 +19,25 @@ when isMainModule:
   doAssert out1.contains("sample.txt")
   doAssert not out1.contains("MYSECRET")   # ne doit pas apparaître
 
-  # 2) avec --preview : masqué (pas d'alphanum révélés)
+  # 2) avec --preview : aperçu masqué (aucun alphanum)
   let out2 = runOut("./entlint", @["file", "sample.txt", "--lines", "--preview"])
   doAssert out2.contains("preview=\"")
-  # RegEx: aperçu ne doit contenir ni lettres ni chiffres (remplacés par '*')
-  doAssert not ("[A-Za-z0-9]".toRegex.find(out2))
+  doAssert not contains(out2, re"[A-Za-z0-9]")
 
   # 3) exclusions fonctionnent
   createDir("dist")
-  writeFile("dist/high.txt", "AAAAAAAAAAAAAAAAAAAAAA") # faible info mais on teste exclude
+  writeFile("dist/high.txt", "AAAAAAAAAAAAAAAAAAAAAA")
   let out3 = runOut("./entlint", @["scan", ".", "--exclude", "dist"])
   doAssert not out3.contains("dist/high.txt")
 
   # 4) codes de sortie
   writeFile("low.txt", "bonjour bonjour bonjour\n")
   doAssert runExit("./entlint", @["file", "low.txt"]) == 0
-  # pseudo-random pour déclencher entropie
+
+  # pseudo-aléatoire pour déclencher une entropie élevée
   var raw = newString(128)
-  for i in 0..<raw.len: raw[i] = char((i*73) mod 256)
+  for i in 0 ..< raw.len:
+    raw[i] = char((i * 73) mod 256)
   writeFile("high.bin", raw)
   let rc = runExit("./entlint", @["file", "high.bin"])
   doAssert rc == 2
