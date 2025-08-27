@@ -41,10 +41,10 @@ proc previewRedact(s: string; maxChars = 24): string =
   ## Keep visual structure but redact alphanumerics; show only first maxChars.
   if s.len == 0: return ""
   let t = if s.len <= maxChars: s else: s[0 ..< maxChars]
-  var out = newString(t.len)
+  var buf = newString(t.len)              # <- renommé: évite le mot-clé `out`
   for i, c in t:
-    out[i] = (if c.isAlphaNumeric: '*' else: c)
-  result = out & (if s.len > t.len: "…" else: "")
+    buf[i] = (if c.isAlphaNumeric: '*' else: c)
+  result = buf & (if s.len > t.len: "…" else: "")
 
 # ---------- reporting ----------
 
