@@ -105,6 +105,20 @@ proc main() =
   doAssert not cumulativeIgnoreResult.output.contains(sample)
   doAssert cumulativeIgnoreResult.output.contains("too many active ignore rules")
 
+  # Regression: control characters on active rules must be rejected before
+  # strip() can silently turn a tab-prefixed rule into a broader valid rule.
+  let controlIgnore = tempRoot / "control.ignore"
+  writeFile(controlIgnore, "\tsecrets/\n")
+  let controlIgnoreResult = runCommand(binaryPath, @[
+    "scan", ignoreRoot,
+    "--no-ignore-file",
+    "--ignore-file", controlIgnore,
+    "--json"
+  ])
+  doAssert controlIgnoreResult.exitCode == 1, controlIgnoreResult.output
+  doAssert controlIgnoreResult.output.contains("control character")
+  doAssert not controlIgnoreResult.output.contains(sample)
+
   # Regression: SARIF artifactLocation.uri is a URI path, so reserved filename
   # bytes such as space, '#', and '%' must be percent-encoded while '/' remains
   # a path separator.
