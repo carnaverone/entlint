@@ -1,15 +1,53 @@
-import std/[strutils]
+import std/strutils
 import entlint
 
+proc highEntropySample(): string =
+  # Fragments stay short so the repository never contains a realistic raw secret.
+  "AbCdEfGh" & "12345678" & "_+-/WXYZ"
+
 proc main() =
-  # Entropie basse
   doAssert shannonEntropy("aaaaaaaaaaaaaaaaaaaa") < 1.0
 
-  # Entropie haute → doit produire un aperçu
-  let s = "prefix_" &
-          "9aZ2Qm!X#C7yP0kV4uR3tY8wS1bL5nH6qJ2zD9eF0gM" &
-          "_suffix"
-  let pv = findPreview(s, win=16, thr=3.5)
-  doAssert pv.len > 0, "preview must not be empty"
+  let sample = highEntropySample()
+  doAssert sample.len >= 20
+  doAssert shannonEntropy(sample) > 4.0
+
+  let masked = maskSecret(sample)
+  doAssert masked != sample
+  doAssert masked.contains("*")
+  doAssert not masked.contains(sample)
+
+  let tokens = candidateTokens("prefix=" & sample & " suffix", minLength = 20)
+  doAssert tokens.len == 1
+  doAssert tokens[0] == sample
+
+  let findings = scanText(
+    "token=" & sample,
+    path = "fixture.txt",
+    threshold = 4.0,
+    minLength = 20,
+    wantPreview = true
+  )
+  doAssert findings.len == 1
+  doAssert findings[0].path == "fixture.txt"
+  doAssert findings[0].line == 1
+  doAssert findings[0].preview != sample
+  doAssert findings[0].preview.contains("*")
+
+  doAssert scanText(
+    "ordinary configuration text",
+    threshold = 4.0,
+    minLength = 20
+  ).len == 0
+
+  doAssert scanText(
+    "text\0binary",
+    threshold = 4.0,
+    minLength = 20
+  ).len == 0
+
+  let preview = findPreview(sample, win = 16, thr = 3.5)
+  doAssert preview.len > 0
+  doAssert preview != sample
 
 main()

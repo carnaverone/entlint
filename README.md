@@ -1,106 +1,211 @@
 # entlint
 
-**CLI Entropy Linter (Nim)** — Scan files and directories for secrets (API keys, tokens, credentials) using entropy analysis.  
-**No BS**: no cloud, no data leaks, 100% CLI, MIT license.
+`entlint` is a small, local-first secret linter written in **Nim**. It scans text files for long, high-entropy token candidates that may represent accidentally committed API keys, tokens, passwords, or generated credentials.
 
----
+It is intentionally simple:
 
-## 📦 INSTALLATION
+- **local only** — no uploads, telemetry, or external service dependency;
+- **safe output** — raw candidate secrets are never printed;
+- **single CLI** — build to one native executable;
+- **CI-friendly** — deterministic exit codes and JSON output;
+- **heuristic by design** — useful as a lightweight guardrail, not a substitute for provider-aware scanners.
 
-### **Quick method: prebuilt binary**
-- [Download the latest release](https://github.com/carnaverone/entlint/releases)
-- Make it executable and move it anywhere you want:
-  ```sh
-  chmod +x entlint
-  sudo mv entlint /usr/local/bin/
+Current version: **0.2.0**
 
-Build from source
+## What it detects
 
-    Prerequisites: Nim >= 1.6.0
+`entlint` tokenizes text without PCRE and evaluates candidate strings using Shannon entropy. By default, a candidate must:
 
-nimble install nim
+1. be at least 20 characters long;
+2. contain at least two character classes;
+3. have entropy of at least 4.0 bits/character.
 
-Build
+Common generated/build directories are skipped by default, binary files containing NUL bytes are ignored, and files larger than 2 MiB are skipped unless configured otherwise.
 
-    git clone https://github.com/carnaverone/entlint.git
-    cd entlint
-    nimble build -d:release
-    # Binary will be at ./entlint
+Because entropy is heuristic, false positives and false negatives are possible. For deep repository history scans or provider-side credential verification, use a specialized tool such as Gitleaks or TruffleHog alongside `entlint`.
 
-🚦 USAGE
-Scan a directory (with exclusions, preview, strict threshold)
+## Build
 
-entlint scan . --lines --preview --min 4.2 --exclude node_modules --exclude .git
+Requirements:
 
-Scan a file
+- Nim **1.6+**
+- Nimble
 
-entlint file ./secrets.env --min 4.0 --preview
+```bash
+git clone https://github.com/carnaverone/entlint.git
+cd entlint
+nimble build -d:release
+./entlint --version
+```
 
-JSON output (for CI or scripts)
+Optional user-local installation:
 
-entlint scan src --lines --json
+```bash
+mkdir -p ~/.local/bin
+cp ./entlint ~/.local/bin/entlint
+```
 
-MAIN OPTIONS
-Flag	Description
---min <f>	Entropy threshold in bits/byte (default: 4.0)
---lines	Line-by-line analysis
---json	Machine-readable JSON output
---max-size <N>	Ignore files >N bytes (default: 2MiB)
---exclude <pat>	Exclude paths containing <pat> (repeatable)
---preview	Masked preview (never prints raw content)
+## Quick start
 
-Exit codes:
+Scan the current repository:
 
-    0 = no findings
+```bash
+entlint scan .
+```
 
-    2 = suspect secrets found
+Include line numbers and masked previews:
 
-    1 = error/usage
+```bash
+entlint scan . --lines --preview
+```
 
-🧰 TROUBLESHOOTING
+Scan one file:
 
-    invalid indentation error during build:
-    → Check your indentation (only spaces, no tabs!), fix with:
+```bash
+entlint file ./config.txt --lines
+```
 
-    find . -name "*.nim" -exec sed -i 's/\t/  /g' {} \;
+Produce machine-readable JSON:
 
-    normalizePath not found:
-    → Replace .normalizePath with canonicalPath(p) or just use p depending on your Nim version.
+```bash
+entlint scan src --json
+```
 
-    No ./entlint binary after build:
-    → Build failed, check logs (nimble build -d:release --verbose).
+Tune detection:
 
-    CI/CD GitHub Actions:
-    → .github/workflows/test.yml runs build + test on push/PR.
+```bash
+entlint scan . \
+  --min 4.2 \
+  --min-length 24 \
+  --max-size 4MiB \
+  --exclude fixtures \
+  --exclude vendor
+```
 
-🚨 ETHICS
+The v0.1-style form remains accepted:
 
-    NO actual secrets are shown (masked previews only).
+```bash
+entlint --path . --threshold 4.0
+```
 
-    For authorized audit only (do not scan random code!).
+## CLI
 
-    Zero upload, zero cloud, zero leak possible.
+```text
+entlint scan [PATH] [options]
+entlint file FILE [options]
+```
 
-🦾 PRE-COMMIT HOOK (anti-leak)
+| Option | Description |
+| --- | --- |
+| `--min N`, `--threshold N` | Shannon entropy threshold; default `4.0` |
+| `--min-length N` | Minimum candidate length; default `20` |
+| `--max-size N` | Maximum file size; bytes, `K/KiB`, or `M/MiB` |
+| `--exclude PATTERN` | Exclude matching paths; repeatable |
+| `--no-default-excludes` | Disable built-in directory exclusions |
+| `--preview` | Show a **masked** candidate preview |
+| `--lines` | Include line numbers in human output |
+| `--json` | Emit JSON on stdout |
+| `--version` | Print version |
+| `-h`, `--help` | Show help |
 
-Blocks commit if secrets detected:
+Default excluded directory components:
 
-# .git/hooks/pre-commit (chmod +x)
-tmp=$(mktemp -d)
-git diff --cached --name-only -z | xargs -0 -I{} sh -c 'd=$(dirname "{}"); mkdir -p "$tmp/$d"; cp "{}" "$tmp/{}"'
-./entlint scan "$tmp" --lines --json >/dev/null || rc=$?
-rm -rf "$tmp"
-[ "${rc:-0}" -eq 2 ] && echo "entlint: secrets found!" && exit 1 || exit 0
+```text
+.git node_modules nimcache zig-cache zig-out target dist build .cache
+```
 
-🛣️ ROADMAP
+Symlinks and special files are not followed.
 
-    SARIF export, .entlintignore, per-extension thresholds, multithread, PR welcome.
+## Output safety
 
-🔖 LICENSE
+Human output never contains the full candidate token.
 
-MIT © Carnaverone Studio — All Rights Reserved 2025
+Example:
 
-    Contact / Pro / AI bundles: carnaverone.store
+```text
+HIGH src/example.txt:12 entropy=4.625 len=32 preview="Ab************************yz"
+entlint: findings=1 scanned=14 skipped=3
+```
 
+`--json` follows the same rule. A preview is included only when `--preview` is explicitly supplied, and that preview remains masked.
 
-PromptBase / Gumroad / Consulting: on request
+Example shape:
+
+```json
+{
+  "version": "0.2.0",
+  "target": ".",
+  "threshold": 4.0,
+  "min_length": 20,
+  "scanned_files": 14,
+  "skipped_entries": 3,
+  "errors": 0,
+  "findings_count": 1,
+  "findings": [
+    {
+      "path": "src/example.txt",
+      "line": 12,
+      "entropy": 4.625,
+      "length": 32
+    }
+  ]
+}
+```
+
+## Exit codes
+
+| Code | Meaning |
+| ---: | --- |
+| `0` | Scan completed with no findings |
+| `1` | Usage, I/O, or scan error |
+| `2` | One or more suspicious candidates found |
+
+That makes CI usage straightforward:
+
+```yaml
+- name: Secret entropy check
+  run: ./entlint scan . --json
+```
+
+A finding exits with code `2`, so a CI job can fail before a suspicious token is merged.
+
+## Development
+
+Run the test suite:
+
+```bash
+nimble test -y
+```
+
+The tests use synthetic values assembled at runtime. **Do not add real credentials or copied production tokens to fixtures.**
+
+Project layout:
+
+```text
+src/entlint.nim        CLI and scanner implementation
+tests/test_cli.nim     scanner/unit coverage
+entlint.nimble         package metadata and test task
+```
+
+## Security model and limitations
+
+`entlint`:
+
+- does not connect to the network;
+- does not verify whether a credential is active;
+- does not scan Git history separately from files present in the target tree;
+- does not print raw candidate secrets;
+- intentionally skips binary data and oversized files by default;
+- uses heuristics, so findings require review.
+
+For responsible disclosure, see [`SECURITY.md`](SECURITY.md). Operational boundaries are documented in [`SECURITY_OPERATION_POLICY.md`](SECURITY_OPERATION_POLICY.md).
+
+## Contributing
+
+Contributions are welcome. Keep changes focused and local-first. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).
+
+Copyright © 2025–2026 Carnaverone.

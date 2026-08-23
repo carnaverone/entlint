@@ -1,6 +1,6 @@
-version       = "0.1.1"
+version       = "0.2.0"
 author        = "carnaverone"
-description   = "Tiny entropy linter (Nim). Safe previews, no PCRE."
+description   = "Local entropy-based secret linter with masked output and CI-friendly exit codes."
 license       = "MIT"
 srcDir        = "src"
 bin           = @["entlint"]
