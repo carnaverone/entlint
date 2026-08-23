@@ -178,6 +178,17 @@ proc testCliIntegration() =
   doAssert defaultsDisabled.exitCode == 2, defaultsDisabled.output
   doAssert parseJson(defaultsDisabled.output)["findings_count"].getInt() >= 1
 
+  when defined(posix):
+    let lnExe = findExe("ln")
+    doAssert lnExe.len > 0, "ln executable must be available for symlink test"
+    let linkPath = tempRoot / "secret-link.txt"
+    let linkCreated = runCommand(lnExe, @["-s", secretPath, linkPath])
+    doAssert linkCreated.exitCode == 0, linkCreated.output
+
+    let symlinkTarget = runCommand(binaryPath, @["file", linkPath, "--json"])
+    doAssert symlinkTarget.exitCode == 1
+    doAssert not symlinkTarget.output.contains(sample)
+
   let missing = runCommand(binaryPath, @["file", tempRoot / "missing.txt", "--json"])
   doAssert missing.exitCode == 1
 
