@@ -120,8 +120,7 @@ proc main() =
   doAssert sarifResult.exitCode == 2, sarifResult.output
   doAssert not sarifResult.output.contains(sample)
   let sarifJson = parseJson(sarifResult.output)
-  let artifactUri = sarifJson["runs"][0]["results"][0]["locations"][0]
-    ["physicalLocation"]["artifactLocation"]["uri"].getStr()
+  let artifactUri = sarifJson["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"].getStr()
   doAssert artifactUri.endsWith("special%20%23100%25%20file.txt"), artifactUri
   doAssert not artifactUri.contains(" ")
   doAssert not artifactUri.contains("#")
