@@ -10,7 +10,7 @@ It is intentionally simple:
 - **local only** — no uploads, telemetry, or external service dependency;
 - **safe output** — raw candidate secrets are never printed;
 - **single CLI** — build to one native executable;
-- **CI-friendly** — deterministic exit codes and JSON output;
+- **CI-friendly** — deterministic exit codes plus JSON and SARIF 2.1.0 output;
 - **heuristic by design** — useful as a lightweight guardrail, not a substitute for provider-aware scanners.
 
 Development version: **0.2.0**
@@ -78,6 +78,12 @@ Produce machine-readable JSON:
 entlint scan src --json
 ```
 
+Produce SARIF 2.1.0 for code-scanning integrations:
+
+```bash
+entlint scan . --sarif > entlint.sarif
+```
+
 Tune detection:
 
 ```bash
@@ -128,9 +134,12 @@ entlint file FILE [options]
 | `--no-default-excludes` | Disable built-in directory exclusions |
 | `--preview` | Show a **masked** candidate preview |
 | `--lines` | Include line numbers in human output |
-| `--json` | Emit JSON on stdout |
+| `--json` | Emit native entlint JSON on stdout |
+| `--sarif` | Emit SARIF 2.1.0 on stdout |
 | `--version` | Print version |
 | `-h`, `--help` | Show help |
+
+`--json` and `--sarif` are mutually exclusive.
 
 Default excluded directory components:
 
@@ -196,9 +205,11 @@ entlint: findings=1 scanned=14 skipped=3
 
 `--json` follows the same rule. A preview is included only when `--preview` is explicitly supplied, and that preview remains masked.
 
-Human-readable paths and error messages are sanitized so control characters cannot inject extra terminal/log lines. JSON strings are emitted through the standard JSON serializer.
+SARIF output never includes the raw candidate token or a candidate preview. It reports only rule metadata, entropy/length context, file location, and line number.
 
-Example shape:
+Human-readable paths and error messages are sanitized so control characters cannot inject extra terminal/log lines. JSON and SARIF strings are emitted through the standard JSON serializer.
+
+Example native JSON shape:
 
 ```json
 {
@@ -220,6 +231,26 @@ Example shape:
   ]
 }
 ```
+
+## SARIF 2.1.0
+
+`entlint --sarif` emits one SARIF run with tool name `entlint` and rule ID `ENTLINT001` (`HighEntropySecretCandidate`). Findings contain a physical file location and `startLine`, which makes the output suitable for SARIF-aware code-scanning platforms.
+
+Example:
+
+```bash
+entlint scan . --sarif > entlint.sarif
+```
+
+Important behavior:
+
+- SARIF generation is **local only**; `entlint` does not upload the file anywhere;
+- no token value is embedded in SARIF messages;
+- paths are normalized to `/` and are made relative to the current working directory when possible;
+- a clean scan still emits valid SARIF with an empty `results` array;
+- findings still return exit code `2`, even though the SARIF document is written successfully.
+
+If you later choose to upload the generated file to GitHub Code Scanning or another SARIF consumer, that upload is a separate operator/CI action and is intentionally outside `entlint` runtime behavior.
 
 ## Exit codes
 
@@ -275,7 +306,10 @@ The test suite covers both scanner logic and the compiled CLI. It checks:
 - line-number reporting;
 - UUID and URL/path false-positive guards;
 - JWT-shaped opaque-token detection;
-- JSON output;
+- native JSON output;
+- SARIF 2.1.0 structure, rule metadata and locations;
+- clean SARIF output with an empty result set;
+- `--json` / `--sarif` mutual exclusion;
 - exit codes `0`, `1`, and `2`;
 - binary-file skipping;
 - maximum-size skipping and overflow rejection;
@@ -303,6 +337,7 @@ entlint.nimble         package metadata and test task
 `entlint`:
 
 - does not connect to the network at runtime;
+- does not upload SARIF or native JSON output;
 - does not verify whether a credential is active;
 - does not scan Git history separately from files present in the target tree;
 - does not print raw candidate secrets;
@@ -311,8 +346,7 @@ entlint.nimble         package metadata and test task
 - intentionally skips binary data containing NUL bytes and oversized files by default;
 - reads eligible files into memory rather than streaming them;
 - uses heuristic entropy detection, so findings require review;
-- implements simple ignore-file substring rules, **not** gitignore-compatible glob/negation semantics;
-- does not yet implement SARIF output.
+- implements simple ignore-file substring rules, **not** gitignore-compatible glob/negation semantics.
 
 For responsible disclosure, see [`SECURITY.md`](SECURITY.md). Operational repository boundaries are documented separately in [`SECURITY_OPERATION_POLICY.md`](SECURITY_OPERATION_POLICY.md).
 
@@ -321,11 +355,11 @@ For responsible disclosure, see [`SECURITY.md`](SECURITY.md). Operational reposi
 Useful follow-up work for later releases includes:
 
 - optional gitignore-style glob/negation semantics if they can remain deterministic;
-- SARIF output for code-scanning platforms;
 - minimum-supported-Nim CI coverage;
 - optional provider-aware rules without network verification;
 - streaming analysis for larger files;
-- measured false-positive/false-negative benchmark corpora.
+- measured false-positive/false-negative benchmark corpora;
+- stable SARIF fingerprints if direct API upload use cases require them.
 
 ## Contributing
 

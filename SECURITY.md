@@ -19,7 +19,9 @@ The project is designed to preserve these properties:
 - no network upload;
 - no external service dependency at runtime;
 - no raw secret values in normal human output;
-- no raw secret values in JSON output;
+- no raw secret values in native JSON output;
+- no raw secret values or previews in SARIF output;
+- SARIF generation is local-only and does not upload results;
 - masked previews only when `--preview` is explicitly requested;
 - human-readable paths and errors sanitize terminal/control characters;
 - binary files containing NUL bytes are skipped;
@@ -41,11 +43,18 @@ Review ignore-rule changes carefully in security-sensitive repositories. An atta
 
 The current ignore-file parser deliberately does **not** implement gitignore glob or negation semantics. It accepts bounded, case-sensitive path fragments only. This keeps matching predictable and reduces parser complexity.
 
+## SARIF output
+
+`--sarif` emits SARIF 2.1.0 to stdout using a fixed rule identifier and physical source locations. The output contains entropy/length metadata and file/line information, but never the raw candidate token.
+
+`entlint` does not upload SARIF. Uploading a generated SARIF document to GitHub Code Scanning or another service is a separate operator or CI action with its own authentication and permissions.
+
 ## What to report
 
 Useful security reports include, for example:
 
 - a code path that prints an unmasked candidate secret;
+- raw candidate leakage through JSON or SARIF output;
 - unexpected network access or telemetry;
 - path handling that escapes the requested scan scope;
 - symlink traversal, whether recursive, through an explicit target, or through an ignore file;
