@@ -18,6 +18,7 @@ All notable user-facing changes to `entlint` are documented here.
 - Stable exit code `2` when suspicious candidates are found.
 - Masked preview output that never prints the full candidate.
 - CLI integration coverage for JSON, SARIF, exit codes, exclusions, binary skipping, size limits, ignore files and symlink boundaries.
+- A 22-case synthetic detection regression corpus with explicit TP/FP/TN/FN gates.
 - Public-facing security reporting policy.
 
 ### Changed
@@ -33,6 +34,7 @@ All notable user-facing changes to `entlint` are documented here.
 - Oversized `--max-size` values that would overflow are rejected.
 - Human-readable paths/errors sanitize control characters to avoid terminal/log injection.
 - `--json` and `--sarif` are mutually exclusive machine-output modes.
+- `nimble test` now runs both CLI/integration coverage and the detection-quality corpus gate.
 - v0.1 `--path` and `--threshold` forms remain accepted for compatibility.
 
 ### Security
@@ -44,3 +46,7 @@ All notable user-facing changes to `entlint` are documented here.
 - Explicit and recursive symlink boundaries are covered by regression tests.
 - Ignore files must be regular files; symlinked ignore files are refused.
 - Ignore files reject NUL/control characters and are bounded to 256 KiB, 2,048 rules and 4,096 characters per rule.
+
+### Detection-quality baseline
+
+The initial public synthetic corpus records 8 true positives, 0 false negatives, 10 true negatives and 4 known false positives. The four known false positives are structured release/version/package/filename identifiers. See `docs/DETECTION_CORPUS.md`; these values are a regression baseline, not a claim of real-world accuracy.
