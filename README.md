@@ -13,9 +13,7 @@ It is intentionally simple:
 - **CI-friendly** — deterministic exit codes plus JSON and SARIF 2.1.0 output;
 - **heuristic by design** — useful as a lightweight guardrail, not a substitute for provider-aware scanners.
 
-Development version: **0.2.0**
-
-> `0.2.0` is under review until it is formally released. The repository may contain newer behavior than the latest published release.
+Current release: **0.2.0**
 
 ## What it detects
 
