@@ -180,6 +180,9 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
+          body: |
+            Source: https://github.com/${{ github.repository }}/tree/${{ github.ref_name }}
+            License: MIT — see `LICENSE` in the tagged source.
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: artifacts/**/*
