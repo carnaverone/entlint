@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a focused improvement to entlint
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep proposals local-first, dependency-light, and compatible with entlint's output-safety contract.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user problem rather than only the implementation idea.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Include CLI/output examples using synthetic data when useful.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Tradeoffs and detection impact
+      description: Note expected false-positive/false-negative, privacy, performance, or compatibility effects.
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Project constraints
+      options:
+        - label: This proposal does not require sending scan data or credentials to a remote service.
+          required: true
+        - label: Any examples use synthetic/non-sensitive values only.
+          required: true
