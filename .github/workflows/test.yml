@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        nim-version: ["1.6.0", "stable"]
+        nim-version: ["2.0.0", "stable"]
     name: test (Nim ${{ matrix.nim-version }})
     steps:
       - uses: actions/checkout@v4
