@@ -5,7 +5,7 @@ license       = "MIT"
 srcDir        = "src"
 bin           = @["entlint"]
 
-requires "nim >= 1.6.0"
+requires "nim >= 2.0.0"
 
 task test, "Run tests":
   exec "nim c -r -d:release --path:src tests/test_cli.nim"
