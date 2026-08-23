@@ -89,6 +89,21 @@ entlint scan . \
   --exclude vendor
 ```
 
+For repository-specific exclusions, create `.entlintignore` at the scan root:
+
+```text
+# generated fixtures
+fixtures/generated/
+examples/not-a-secret.txt
+vendor/cache/
+```
+
+Then run normally:
+
+```bash
+entlint scan .
+```
+
 The v0.1-style form remains accepted:
 
 ```bash
@@ -108,6 +123,8 @@ entlint file FILE [options]
 | `--min-length N` | Minimum candidate length; default `20` |
 | `--max-size N` | Maximum file size; bytes, `K/KiB`, or `M/MiB` |
 | `--exclude PATTERN` | Exclude paths containing `PATTERN`; repeatable |
+| `--ignore-file FILE` | Load additional path-fragment exclusions from `FILE`; repeatable |
+| `--no-ignore-file` | Do not auto-load `<scan-root>/.entlintignore` |
 | `--no-default-excludes` | Disable built-in directory exclusions |
 | `--preview` | Show a **masked** candidate preview |
 | `--lines` | Include line numbers in human output |
@@ -121,9 +138,50 @@ Default excluded directory components:
 .git node_modules nimcache zig-cache zig-out target dist build .cache
 ```
 
-`--exclude` currently performs a case-sensitive path-substring match. It is **not** gitignore/glob syntax.
+`--exclude` performs a case-sensitive path-substring match. It is **not** gitignore/glob syntax.
 
 Recursive directory traversal skips symlinks and special files. If a symlink is supplied directly as the CLI scan target, `entlint` refuses to follow it and exits with code `1` rather than silently scanning outside the requested path boundary.
+
+## `.entlintignore`
+
+When `entlint scan DIRECTORY` is used, the scanner automatically loads a regular file named `.entlintignore` from that **scan root**. It does not search parent directories.
+
+The format is intentionally small and deterministic:
+
+- blank lines are ignored;
+- lines whose first non-whitespace character is `#` are comments;
+- every other line is a **case-sensitive path substring**;
+- `\` is normalized to `/` for matching;
+- glob wildcards such as `*` and `?` have no special meaning;
+- `!` negation is not implemented.
+
+Example:
+
+```text
+# generated content
+fixtures/generated/
+docs/snapshots/
+third_party/cache.bin
+```
+
+You can load additional ignore files explicitly:
+
+```bash
+entlint scan . --ignore-file ./config/ci.entlintignore
+```
+
+`--ignore-file` is repeatable. `--no-ignore-file` disables only the automatic `<scan-root>/.entlintignore`; explicitly supplied ignore files are still loaded.
+
+For safety, ignore files:
+
+- must be regular files;
+- are never followed through symlinks;
+- may not contain NUL or control characters in rules;
+- are limited to 256 KiB;
+- are limited to 2,048 active rules;
+- are limited to 4,096 characters per rule.
+
+Ignore rules can suppress scanning of matching paths, so review `.entlintignore` changes like other security-sensitive repository configuration. An ignore rule is a convenience for known generated/test content, not proof that ignored content is safe.
 
 ## Output safety
 
@@ -168,7 +226,7 @@ Example shape:
 | Code | Meaning |
 | ---: | --- |
 | `0` | Scan completed with no findings |
-| `1` | Usage, I/O, safety-boundary, or scan error |
+| `1` | Usage, I/O, safety-boundary, ignore-configuration, or scan error |
 | `2` | One or more suspicious candidates found |
 
 That makes CI usage straightforward:
@@ -200,7 +258,7 @@ Shannon entropy threshold
 masked finding + deterministic exit code
 ```
 
-Use `--min`, `--min-length`, `--exclude`, and `--max-size` to tune the scanner for a repository. A finding is a **review signal**, not proof that a credential is valid.
+Use `--min`, `--min-length`, `--exclude`, `.entlintignore`, `--ignore-file`, and `--max-size` to tune the scanner for a repository. A finding is a **review signal**, not proof that a credential is valid.
 
 ## Development and tests
 
@@ -222,6 +280,9 @@ The test suite covers both scanner logic and the compiled CLI. It checks:
 - binary-file skipping;
 - maximum-size skipping and overflow rejection;
 - explicit exclusions;
+- automatic `.entlintignore` loading and `--no-ignore-file`;
+- explicit `--ignore-file` loading;
+- malformed, oversized, missing, and symlinked ignore-file rejection;
 - default `.git` exclusion behavior;
 - explicit symlink-target refusal on POSIX;
 - control-character sanitization for human/log output;
@@ -246,10 +307,12 @@ entlint.nimble         package metadata and test task
 - does not scan Git history separately from files present in the target tree;
 - does not print raw candidate secrets;
 - refuses explicit symlink scan targets and does not follow symlinks recursively;
+- refuses symlinked ignore files;
 - intentionally skips binary data containing NUL bytes and oversized files by default;
 - reads eligible files into memory rather than streaming them;
 - uses heuristic entropy detection, so findings require review;
-- does not yet implement gitignore-compatible ignore rules or SARIF output.
+- implements simple ignore-file substring rules, **not** gitignore-compatible glob/negation semantics;
+- does not yet implement SARIF output.
 
 For responsible disclosure, see [`SECURITY.md`](SECURITY.md). Operational repository boundaries are documented separately in [`SECURITY_OPERATION_POLICY.md`](SECURITY_OPERATION_POLICY.md).
 
@@ -257,7 +320,7 @@ For responsible disclosure, see [`SECURITY.md`](SECURITY.md). Operational reposi
 
 Useful follow-up work for later releases includes:
 
-- a documented ignore-file format;
+- optional gitignore-style glob/negation semantics if they can remain deterministic;
 - SARIF output for code-scanning platforms;
 - minimum-supported-Nim CI coverage;
 - optional provider-aware rules without network verification;
