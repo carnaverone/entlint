@@ -9,6 +9,7 @@ const
   MaxIgnoreFileSize = 256 * 1024
   MaxIgnoreRules = 2048
   MaxIgnoreRuleLength = 4096
+  SarifRuleId = "ENTLINT001"
   DefaultExcludeDirs = [".git", "node_modules", "nimcache", "zig-cache",
                         "zig-out", "target", "dist", "build", ".cache"]
 
@@ -29,6 +30,7 @@ type
     wantPreview: bool
     wantLines: bool
     jsonOutput: bool
+    sarifOutput: bool
     useDefaultExcludes: bool
     useDefaultIgnoreFile: bool
 
@@ -59,6 +61,7 @@ Options:
   --preview                 show masked previews only
   --lines                   include line numbers in human output
   --json                    machine-readable JSON on stdout
+  --sarif                   SARIF 2.1.0 on stdout for code-scanning integrations
   --version                 print version and exit
   -h, --help                show this help and exit
 
@@ -428,6 +431,106 @@ proc printJson(stats: ScanStats; target: string; opts: ScanOptions) =
 
   echo $root
 
+proc sarifArtifactUri(path: string): string =
+  ## Prefer a repository-relative URI when invoked from the repository root.
+  var candidate = path
+  try:
+    let relative = relativePath(path, getCurrentDir())
+    if relative.len > 0 and not relative.startsWith(".."):
+      candidate = relative
+  except CatchableError:
+    discard
+
+  result = candidate.replace("\\", "/")
+  while result.startsWith("./") and result.len > 2:
+    result = result[2 .. ^1]
+
+proc sarifRule(): JsonNode =
+  result = newJObject()
+  result["id"] = %SarifRuleId
+  result["name"] = %"HighEntropySecretCandidate"
+
+  var shortDescription = newJObject()
+  shortDescription["text"] = %"Potential high-entropy secret candidate"
+  result["shortDescription"] = shortDescription
+
+  var fullDescription = newJObject()
+  fullDescription["text"] = %(
+    "A long, high-entropy token-like value was found. Review it as a possible " &
+    "credential or generated secret. entlint never verifies credentials over the network."
+  )
+  result["fullDescription"] = fullDescription
+
+  var defaultConfiguration = newJObject()
+  defaultConfiguration["level"] = %"warning"
+  result["defaultConfiguration"] = defaultConfiguration
+
+  var properties = newJObject()
+  var tags = newJArray()
+  tags.add(%"security")
+  tags.add(%"secrets")
+  properties["tags"] = tags
+  result["properties"] = properties
+
+proc findingToSarif(finding: Finding): JsonNode =
+  result = newJObject()
+  result["ruleId"] = %SarifRuleId
+  result["level"] = %"warning"
+
+  var message = newJObject()
+  message["text"] = %(
+    "Potential high-entropy secret candidate; entropy=" &
+    formatFloat(finding.entropy, ffDecimal, 3) &
+    ", length=" & $finding.length & ". Review before committing or publishing."
+  )
+  result["message"] = message
+
+  var artifactLocation = newJObject()
+  artifactLocation["uri"] = %sarifArtifactUri(finding.path)
+
+  var region = newJObject()
+  region["startLine"] = %finding.line
+
+  var physicalLocation = newJObject()
+  physicalLocation["artifactLocation"] = artifactLocation
+  physicalLocation["region"] = region
+
+  var location = newJObject()
+  location["physicalLocation"] = physicalLocation
+
+  var locations = newJArray()
+  locations.add(location)
+  result["locations"] = locations
+
+proc printSarif(stats: ScanStats) =
+  var root = newJObject()
+  root["$schema"] = %"https://json.schemastore.org/sarif-2.1.0.json"
+  root["version"] = %"2.1.0"
+
+  var driver = newJObject()
+  driver["name"] = %"entlint"
+  driver["semanticVersion"] = %Version
+  driver["informationUri"] = %"https://github.com/carnaverone/entlint"
+  var rules = newJArray()
+  rules.add(sarifRule())
+  driver["rules"] = rules
+
+  var tool = newJObject()
+  tool["driver"] = driver
+
+  var run = newJObject()
+  run["tool"] = tool
+  var results = newJArray()
+  for finding in stats.findings:
+    results.add(findingToSarif(finding))
+  run["results"] = results
+
+  var runs = newJArray()
+  runs.add(run)
+  root["runs"] = runs
+
+  echo $root
+
 proc printHuman(stats: ScanStats; opts: ScanOptions) =
   for finding in stats.findings:
     var message = "HIGH " & safeDisplayText(finding.path)
@@ -475,6 +578,7 @@ proc main() =
     wantPreview: false,
     wantLines: false,
     jsonOutput: false,
+    sarifOutput: false,
     useDefaultExcludes: true,
     useDefaultIgnoreFile: true
   )
@@ -504,6 +608,8 @@ proc main() =
       opts.wantLines = true
     elif arg == "--json":
       opts.jsonOutput = true
+    elif arg == "--sarif":
+      opts.sarifOutput = true
     elif arg == "--no-default-excludes":
       opts.useDefaultExcludes = false
     elif arg == "--no-ignore-file":
@@ -543,6 +649,8 @@ proc main() =
 
     inc index
 
+  if opts.jsonOutput and opts.sarifOutput:
+    quit("--json and --sarif are mutually exclusive", 1)
   if opts.threshold != opts.threshold or
      opts.threshold <= 0.0 or opts.threshold > 8.0:
     quit("entropy threshold must be a finite value > 0 and <= 8", 1)
@@ -585,7 +693,9 @@ proc main() =
                        safeDisplayText(target))
     inc stats.errors
 
-  if opts.jsonOutput:
+  if opts.sarifOutput:
+    printSarif(stats)
+  elif opts.jsonOutput:
     printJson(stats, target, opts)
   else:
     printHuman(stats, opts)

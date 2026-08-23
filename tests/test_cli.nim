@@ -158,11 +158,35 @@ proc testCliIntegration() =
   doAssert foundJson["findings"][0]["preview"].getStr().contains("*")
   doAssert foundJson["findings"][0]["preview"].getStr() != sample
 
+  let foundSarifResult = runCommand(binaryPath, @["file", secretPath, "--sarif"])
+  doAssert foundSarifResult.exitCode == 2, foundSarifResult.output
+  doAssert not foundSarifResult.output.contains(sample)
+  let foundSarif = parseJson(foundSarifResult.output)
+  doAssert foundSarif["version"].getStr() == "2.1.0"
+  doAssert foundSarif["runs"].len == 1
+  doAssert foundSarif["runs"][0]["tool"]["driver"]["name"].getStr() == "entlint"
+  doAssert foundSarif["runs"][0]["tool"]["driver"]["rules"].len == 1
+  doAssert foundSarif["runs"][0]["tool"]["driver"]["rules"][0]["id"].getStr() == "ENTLINT001"
+  doAssert foundSarif["runs"][0]["results"].len == 1
+  doAssert foundSarif["runs"][0]["results"][0]["ruleId"].getStr() == "ENTLINT001"
+  doAssert foundSarif["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]["startLine"].getInt() == 1
+  doAssert foundSarif["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"].getStr().len > 0
+
   let clean = runCommand(binaryPath, @["file", cleanPath, "--json"])
   doAssert clean.exitCode == 0, clean.output
   let cleanJson = parseJson(clean.output)
   doAssert cleanJson["findings_count"].getInt() == 0
   doAssert cleanJson["errors"].getInt() == 0
+
+  let cleanSarifResult = runCommand(binaryPath, @["file", cleanPath, "--sarif"])
+  doAssert cleanSarifResult.exitCode == 0, cleanSarifResult.output
+  let cleanSarif = parseJson(cleanSarifResult.output)
+  doAssert cleanSarif["runs"][0]["results"].len == 0
+
+  let mixedOutput = runCommand(binaryPath, @[
+    "file", cleanPath, "--json", "--sarif"
+  ])
+  doAssert mixedOutput.exitCode == 1
 
   let skippedBinary = runCommand(binaryPath, @["file", binaryFixture, "--json"])
   doAssert skippedBinary.exitCode == 0, skippedBinary.output
