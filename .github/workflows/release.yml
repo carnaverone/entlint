@@ -4,19 +4,47 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to release (e.g. v0.1.1) — required if running manually'
-        required: true
-        default: 'v0.0.0-dev'
 
 permissions:
-  contents: write    # needed to create/upload a GitHub Release
+  contents: read
 
 jobs:
+  verify:
+    name: Verify release source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Nim
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: stable
+
+      - name: Validate tag and source version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+
+          if [ "${TAG}" = "${VERSION}" ] || [ -z "${VERSION}" ]; then
+            echo "release tag must use the v<version> form" >&2
+            exit 1
+          fi
+
+          grep -Fq "version       = \"${VERSION}\"" entlint.nimble
+          grep -Fq "Version* = \"${VERSION}\"" src/entlint.nim
+          grep -Eq "^## ${VERSION} - [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md
+
+      - name: Prime Nimble index
+        run: nimble refresh -y
+
+      - name: Test
+        run: nimble test -y
+
   build:
     name: Build ${{ matrix.os }}
+    needs: verify
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -31,44 +59,34 @@ jobs:
         with:
           nim-version: stable
 
-      - name: Show Nim
-        run: nim -v
-
-      - name: Resolve TAG
+      - name: Build, smoke-test, and checksum
         shell: bash
         run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
-          else
-            echo "TAG=${{ inputs.tag }}" >> $GITHUB_ENV
-          fi
-
-      - name: Build
-        shell: bash
-        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
           mkdir -p dist
-          OS_ID=""
-          EXT=""
+
           case "${{ matrix.os }}" in
-            ubuntu-latest) OS_ID="linux" ;;
-            macos-latest)  OS_ID="macos" ;;
+            ubuntu-latest) OS_ID="linux"; EXT="" ;;
+            macos-latest) OS_ID="macos"; EXT="" ;;
             windows-latest) OS_ID="windows"; EXT=".exe" ;;
+            *) echo "unsupported runner: ${{ matrix.os }}" >&2; exit 1 ;;
           esac
+
           ARCH="$(uname -m)"
           OUT="entlint-${TAG}-${OS_ID}-${ARCH}${EXT}"
+          nim c -d:release -o:"dist/${OUT}" src/entlint.nim
 
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            nim c -d:release -o:dist/${OUT} src/entlint.nim
-          else
-            nim c -d:release -o:dist/${OUT} src/entlint.nim
-          fi
+          VERSION_OUTPUT="$("./dist/${OUT}" --version)"
+          printf '%s\n' "${VERSION_OUTPUT}"
+          printf '%s\n' "${VERSION_OUTPUT}" | grep -Fq "${VERSION}"
 
-          # checksums
           cd dist
           if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "${OUT}" > "SHA256SUMS"
+            sha256sum "${OUT}" > "${OUT}.sha256"
           else
-            shasum -a 256 "${OUT}" > "SHA256SUMS"
+            shasum -a 256 "${OUT}" > "${OUT}.sha256"
           fi
 
       - name: Upload artifacts
@@ -76,32 +94,25 @@ jobs:
         with:
           name: entlint-${{ matrix.os }}
           path: dist/*
+          if-no-files-found: error
 
   publish:
+    name: Publish GitHub release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Resolve TAG (again)
-        shell: bash
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
-          else
-            echo "TAG=${{ inputs.tag }}" >> $GITHUB_ENV
-          fi
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG }}
-          name: ${{ env.TAG }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           generate_release_notes: true
           fail_on_unmatched_files: true
-          files: |
-            artifacts/**/*
-            artifacts/**/SHA256SUMS
+          files: artifacts/**/*
