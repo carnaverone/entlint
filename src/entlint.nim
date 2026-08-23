@@ -136,6 +136,31 @@ proc tokenClassCount(token: string): int =
 
   result = ord(lower) + ord(upper) + ord(digit) + ord(special)
 
+proc slashCount(token: string): int =
+  for ch in token:
+    if ch == '/':
+      inc result
+
+proc isObviousUrlOrPath(token: string): bool =
+  ## Avoid common false positives while keeping opaque slash-containing tokens.
+  let slashes = slashCount(token)
+
+  if token.startsWith("//") or token.startsWith("www."):
+    return true
+
+  if slashes >= 2 and
+     (token.startsWith("/") or token.startsWith("./") or
+      token.startsWith("../")):
+    return true
+
+  # A multi-segment dotted path is much more likely to be a URL/path than a
+  # credential. Base64-like tokens normally have no dots; JWTs normally have
+  # dots but no path separators, so those remain eligible.
+  if slashes >= 2 and token.contains(".") and tokenClassCount(token) <= 3:
+    return true
+
+  false
+
 proc isUuidLike(token: string): bool =
   if token.len != 36:
     return false
@@ -155,6 +180,8 @@ proc isLikelySecretToken(token: string; threshold: float; minLength: int): bool 
   if token.len < minLength:
     return false
   if isUuidLike(token):
+    return false
+  if isObviousUrlOrPath(token):
     return false
   if tokenClassCount(token) < 2:
     return false
@@ -265,7 +292,7 @@ proc scanDirectory(path: string; opts: ScanOptions; stats: var ScanStats) =
         else:
           scanDirectory(entry, opts, stats)
       else:
-        # Do not follow symlinks or special files.
+        # Do not follow symlinks or special files during directory traversal.
         inc stats.skippedEntries
   except CatchableError as err:
     inc stats.errors
@@ -407,8 +434,9 @@ proc main() =
 
     inc index
 
-  if opts.threshold <= 0.0 or opts.threshold > 8.0:
-    quit("entropy threshold must be > 0 and <= 8", 1)
+  if opts.threshold != opts.threshold or
+     opts.threshold <= 0.0 or opts.threshold > 8.0:
+    quit("entropy threshold must be a finite value > 0 and <= 8", 1)
   if opts.minLength < 8:
     quit("--min-length must be at least 8", 1)
   if command == "file" and not targetSet:
