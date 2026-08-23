@@ -21,9 +21,12 @@ The project is designed to preserve these properties:
 - no raw secret values in normal human output;
 - no raw secret values in JSON output;
 - masked previews only when `--preview` is explicitly requested;
+- human-readable paths and errors sanitize terminal/control characters;
 - binary files containing NUL bytes are skipped;
 - oversized files are skipped according to `--max-size`;
-- directory traversal does not follow symlinks or special files;
+- invalid or overflowing size limits are rejected;
+- recursive directory traversal does not follow symlinks or special files;
+- an explicit symlink scan target is refused instead of followed;
 - findings use deterministic exit codes suitable for CI.
 
 A regression that violates one of these properties should be treated as a security issue.
@@ -35,7 +38,8 @@ Useful security reports include, for example:
 - a code path that prints an unmasked candidate secret;
 - unexpected network access or telemetry;
 - path handling that escapes the requested scan scope;
-- symlink traversal during recursive directory scanning;
+- symlink traversal, whether recursive or through an explicit target;
+- control-character or terminal escape injection in human-readable output;
 - malformed input that causes unsafe disclosure;
 - CLI parsing that bypasses configured safety limits;
 - denial-of-service conditions triggered by ordinary repository content;
