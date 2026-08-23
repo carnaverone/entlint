@@ -10,3 +10,4 @@ requires "nim >= 1.6.0"
 task test, "Run tests":
   exec "nim c -r -d:release --path:src tests/test_cli.nim"
   exec "nim c -r -d:release --path:src tests/test_detection_corpus.nim"
+  exec "nim c -r -d:release --path:src tests/test_review_regressions.nim"
