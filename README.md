@@ -1,9 +1,13 @@
 <p align="center">
-  <strong>ENTLINT</strong>
+  <img src="./docs/assets/entlint.png"
+       alt="entlint — local entropy-based secret scanner for Nim"
+       width="100%">
 </p>
 
+<h1 align="center">entlint</h1>
+
 <p align="center">
-  <strong>Local-first entropy-based secret scanning for source trees, automation, and CI.</strong>
+  <strong>Local-first entropy-based secret scanning for source trees and CI.</strong>
 </p>
 
 <p align="center">
@@ -16,83 +20,60 @@
 </p>
 
 <p align="center">
-  <a href="#-quick-start">Quick Start</a> ·
-  <a href="#-how-it-works">How It Works</a> ·
-  <a href="#-cli-reference">CLI</a> ·
-  <a href="#-output-safety">Output Safety</a> ·
-  <a href="#-detection-quality">Detection Quality</a> ·
-  <a href="SECURITY.md">Security</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#command-line">CLI</a> ·
+  <a href="#security-and-output-safety">Security</a> ·
+  <a href="#detection-quality">Detection Quality</a> ·
+  <a href="SECURITY.md">Security Policy</a> ·
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-<p align="center">
-  <img src="docs/assets/entlint.png"
-       alt="entlint — local entropy-based secret scanner for Nim"
-       width="100%">
-</p>
+Current release: **0.2.0**
 
 ---
 
-> [!IMPORTANT]
-> **A high-entropy finding is a review signal, not proof that a credential is valid.** `entlint` is intentionally local and provider-agnostic: it does not upload findings, authenticate against providers, or verify whether a detected value is live.
+`entlint` is a compact native secret linter written in **Nim**. It scans text files for long, high-entropy token candidates that may represent accidentally committed API keys, access tokens, passwords, or generated credentials.
 
-## 🛡️ entlint at a glance
+It is deliberately narrow: scanning stays local, raw candidate secrets are never printed, and findings are treated as review signals rather than proof that a credential is valid.
+
+> [!IMPORTANT]
+> `entlint` does not upload findings, contact credential providers, or verify whether a detected value is live. For Git-history analysis or provider-aware verification, use specialized tooling alongside it.
+
+## At a glance
 
 | Capability | Current behavior |
 |---|---|
-| Current version | **0.2.0** |
-| Runtime model | **Local-first** |
-| Language | **Nim >= 2.0.0** |
+| Runtime | **Local-first; no runtime network dependency** |
 | Detection | Shannon entropy + conservative candidate guards |
+| Minimum Nim | **2.0.0** |
 | Default threshold | **4.0 bits / character** |
 | Default minimum token length | **20 characters** |
 | Default maximum file size | **2 MiB** |
 | Human output | Raw candidate values are **never printed** |
 | Machine output | Native JSON + **SARIF 2.1.0** |
 | Ignore configuration | `.entlintignore` + explicit ignore files |
-| CI exit codes | `0` clean · `1` error · `2` findings |
-| Runtime network access | **None** |
+| Exit codes | `0` clean · `1` error · `2` findings |
 | CI platforms | Linux · macOS · Windows |
 | License | **MIT** |
 
----
+## Why entlint exists
 
-## 🔎 What is entlint?
+Secret scanners often need to solve two different problems:
 
-`entlint` is a small native secret linter designed to detect suspicious **high-entropy token candidates** in source trees and individual text files.
+1. recognize known credential formats;
+2. notice suspicious opaque values that do not match a provider-specific signature.
 
-It targets values that may represent accidentally committed:
+`entlint` focuses on the second problem. It provides a small provider-agnostic entropy layer that can run locally or as a CI gate without sending source material elsewhere.
 
-- API keys;
-- access tokens;
-- generated credentials;
-- opaque authentication material;
-- password-like generated strings.
+The scanner is useful for:
 
-The scanner is deliberately narrow. It does **not** maintain a cloud-provider credential catalog, connect to remote verification services, or attempt to decide whether a credential is active.
+- catching suspicious opaque tokens before merge;
+- adding a lightweight local secret check to development workflows;
+- producing JSON for automation;
+- producing SARIF 2.1.0 for downstream security tooling;
+- complementing provider-aware or Git-history scanners.
 
-That gives `entlint` a clear role: a lightweight, auditable **local guardrail** that can run before code reaches a remote service or before a CI job accepts a change.
-
----
-
-## ✨ Why entlint?
-
-| Property | What it means |
-|---|---|
-| 🏠 **Local-first** | Scanning happens on the machine running `entlint`. |
-| 🔐 **Secret-safe output** | Raw candidate tokens are never emitted to human, JSON, or SARIF output. |
-| ⚡ **Native CLI** | A compact Nim implementation builds to one native executable. |
-| 🤖 **Automation-ready** | Stable exit codes make findings usable as CI gates. |
-| 🧾 **Structured output** | JSON for automation and SARIF 2.1.0 for security tooling. |
-| 🧭 **Bounded traversal** | Recursive scanning skips symlinks and special file objects. |
-| 🧩 **Repository tuning** | `.entlintignore`, explicit excludes, thresholds, lengths, and size limits. |
-| 🧪 **Regression corpus** | Detection trade-offs are tracked with labeled synthetic test cases. |
-
-For deep Git-history scanning or provider-aware credential verification, use specialized tooling such as Gitleaks or TruffleHog alongside `entlint`.
-
----
-
-## ⚡ Quick Start
+## Quick start
 
 ### Build from source
 
@@ -104,9 +85,7 @@ Requirements:
 ```bash
 git clone https://github.com/carnaverone/entlint.git
 cd entlint
-
 nimble build -d:release
-
 ./entlint --version
 ```
 
@@ -129,10 +108,10 @@ entlint scan .
 entlint file ./config.txt --lines
 ```
 
-### Show line numbers and masked previews
+### Show masked previews and line numbers
 
 ```bash
-entlint scan . --lines --preview
+entlint scan . --preview --lines
 ```
 
 ### Generate JSON
@@ -141,7 +120,7 @@ entlint scan . --lines --preview
 entlint scan . --json
 ```
 
-### Generate SARIF 2.1.0
+### Generate SARIF
 
 ```bash
 entlint scan . --sarif > entlint.sarif
@@ -158,43 +137,39 @@ entlint scan . \
   --exclude vendor
 ```
 
-The legacy v0.1-style form remains accepted:
+The v0.1-style form remains accepted:
 
 ```bash
 entlint --path . --threshold 4.0
 ```
 
----
+## Example finding
 
-## 🖥️ Example finding
-
-Human-readable output intentionally masks the candidate:
+Human-readable output masks the candidate:
 
 ```text
 HIGH src/example.txt:12 entropy=4.625 len=32 preview="Ab************************yz"
 entlint: findings=1 scanned=14 skipped=3
 ```
 
-The original candidate is **not printed**. Without `--preview`, even the masked preview is omitted.
+The original candidate is not printed. Without `--preview`, even the masked preview is omitted.
 
----
-
-## 🧠 How it works
+## Detection model
 
 By default, a candidate must:
 
-1. contain at least **20 characters**;
+1. be at least **20 characters** long;
 2. contain at least **two character classes**;
 3. reach at least **4.0 bits/character** of Shannon entropy.
 
-Additional guards reduce obvious noise from values such as UUIDs and obvious multi-segment URLs or filesystem-like paths.
+The scanner then applies targeted guards for obvious non-secret structures such as UUIDs and multi-segment URL/path forms.
 
 ```text
 source text
     ↓
-long token candidates
+candidate extraction
     ↓
-identifier / obvious URL-path guards
+identifier / URL-path guards
     ↓
 character-class check
     ↓
@@ -203,7 +178,7 @@ Shannon entropy threshold
 masked finding + deterministic exit code
 ```
 
-Candidate characters currently include letters, digits and these separators:
+Candidate characters include letters, digits and:
 
 ```text
 _ - + / . ~
@@ -211,18 +186,16 @@ _ - + / . ~
 
 JWT-shaped opaque values remain eligible for detection.
 
-The detector remains intentionally heuristic. False positives and false negatives are possible, and findings require review.
+Entropy is heuristic. False positives and false negatives are possible, so every finding requires review.
 
----
-
-## 🎛️ CLI reference
+## Command line
 
 ```text
 entlint scan [PATH] [options]
 entlint file FILE [options]
 ```
 
-| Option | Purpose |
+| Option | Description |
 |---|---|
 | `--min N`, `--threshold N` | Shannon entropy threshold; default `4.0` |
 | `--min-length N` | Minimum candidate length; default `20` |
@@ -242,25 +215,15 @@ entlint file FILE [options]
 
 `--exclude` performs a case-sensitive path-substring match. It is **not** gitignore/glob syntax.
 
----
+## Scan boundaries
 
-## 🗂️ Default scan boundaries
-
-The following directory components are excluded by default:
+Default excluded directory components:
 
 ```text
-.git
-node_modules
-nimcache
-zig-cache
-zig-out
-target
-dist
-build
-.cache
+.git node_modules nimcache zig-cache zig-out target dist build .cache
 ```
 
-Regular files merely named `build` or `target` remain eligible for scanning; the built-in exclusions target directory components.
+Regular files merely named `build` or `target` remain eligible; the built-in rules target directory components.
 
 Recursive traversal:
 
@@ -269,19 +232,11 @@ Recursive traversal:
 - skips binary files containing NUL bytes;
 - skips files above the configured maximum size.
 
-An explicit symlink supplied as a scan target is refused rather than followed outside the requested boundary.
+If a symlink is supplied directly as the scan target, `entlint` refuses to follow it and exits with code `1` rather than silently crossing the requested path boundary.
 
----
+## `.entlintignore`
 
-## 🚫 `.entlintignore`
-
-When scanning a directory, `entlint` automatically looks for:
-
-```text
-<scan-root>/.entlintignore
-```
-
-It does **not** search parent directories.
+For directory scans, `entlint` automatically loads a regular file named `.entlintignore` from the **scan root**. It does not search parent directories.
 
 Example:
 
@@ -292,11 +247,11 @@ docs/snapshots/
 third_party/cache.bin
 ```
 
-Rules are intentionally small and deterministic:
+Rules are intentionally deterministic:
 
 - blank lines are ignored;
 - lines whose first non-whitespace character is `#` are comments;
-- active lines use **case-sensitive path substring** matching;
+- active lines are **case-sensitive path substrings**;
 - `\` is normalized to `/` for matching;
 - `*` and `?` have no glob semantics;
 - `!` negation is not implemented.
@@ -304,8 +259,7 @@ Rules are intentionally small and deterministic:
 Additional ignore files can be supplied explicitly:
 
 ```bash
-entlint scan . \
-  --ignore-file ./config/ci.entlintignore
+entlint scan . --ignore-file ./config/ci.entlintignore
 ```
 
 `--ignore-file` is repeatable. `--no-ignore-file` disables only automatic scan-root loading; explicitly supplied files are still loaded.
@@ -320,21 +274,27 @@ For safety, ignore files:
 - are limited to **4,096 characters per rule**.
 
 > [!WARNING]
-> Ignore configuration changes the scanner's visibility. Treat `.entlintignore` changes like other security-sensitive repository configuration.
+> Ignore configuration changes scanner visibility. Review `.entlintignore` changes like other security-sensitive repository configuration.
 
----
+## Security and output safety
 
-## 🔐 Output safety
+`entlint` is designed not to become another secret-exfiltration surface.
 
-The scanner is designed not to become another secret-exfiltration surface.
+It:
 
-### Human output
-
-Raw candidate values are never printed.
+- performs no runtime network requests;
+- uploads no files, findings, JSON, or SARIF;
+- never validates credentials against providers;
+- never prints raw candidate secrets;
+- refuses explicit symlink scan targets;
+- does not recursively follow symlinks;
+- refuses symlinked ignore files;
+- sanitizes human-readable paths and errors against control-character log injection;
+- uses synthetic test credentials only.
 
 ### JSON
 
-JSON contains finding metadata rather than the original candidate:
+Native JSON contains finding metadata rather than the candidate value:
 
 ```json
 {
@@ -357,17 +317,9 @@ JSON contains finding metadata rather than the original candidate:
 }
 ```
 
-A preview appears only when explicitly requested with `--preview`, and remains masked.
+A preview is included only when `--preview` is explicitly requested, and remains masked.
 
-### SARIF
-
-SARIF output never includes the raw candidate token or a candidate preview. It reports rule metadata, entropy/length context, file location and line number.
-
-Human-readable paths and error messages are sanitized so control characters cannot inject extra terminal or CI log lines.
-
----
-
-## 🧾 SARIF 2.1.0
+### SARIF 2.1.0
 
 ```bash
 entlint scan . --sarif > entlint.sarif
@@ -382,15 +334,15 @@ entlint scan . --sarif > entlint.sarif
 | Physical file location | Yes |
 | `startLine` | Yes |
 | Raw secret | **Never** |
-| Network upload | **Never performed by entlint** |
+| Runtime upload | **Never** |
 
-A clean scan still emits valid SARIF with an empty `results` array. Findings still return exit code `2`, even when the SARIF document is successfully written.
+A clean scan emits valid SARIF with an empty `results` array. Findings still return exit code `2` after the SARIF document is written.
 
-Uploading SARIF to GitHub Code Scanning or another consumer is a separate operator or CI action outside the `entlint` runtime.
+Uploading SARIF to GitHub Code Scanning or another consumer is a separate operator or CI action outside `entlint`.
 
----
+For responsible disclosure and operational constraints, see [`SECURITY.md`](SECURITY.md) and [`SECURITY_OPERATION_POLICY.md`](SECURITY_OPERATION_POLICY.md).
 
-## 🚦 Exit codes
+## Exit codes
 
 | Code | Meaning |
 |---:|---|
@@ -398,22 +350,18 @@ Uploading SARIF to GitHub Code Scanning or another consumer is a separate operat
 | `1` | Usage, I/O, safety-boundary, ignore-configuration, or scan error |
 | `2` | One or more suspicious candidates found |
 
-That makes a CI gate straightforward:
+Example CI gate:
 
 ```yaml
 - name: Secret entropy check
   run: ./entlint scan .
 ```
 
-A finding exits with code `2`, allowing a pipeline to stop before suspicious content is accepted.
-
----
-
-## 🧪 Detection quality
+## Detection quality
 
 `entlint` includes a public **synthetic regression corpus** so heuristic trade-offs are measured rather than hidden.
 
-Current `v0.2.0` controlled baseline:
+Current v0.2 controlled baseline:
 
 | Metric | Value |
 |---|---:|
@@ -426,43 +374,16 @@ Current `v0.2.0` controlled baseline:
 | Precision | **66.7%** |
 | Specificity | **71.4%** |
 
-The four known false positives are structured release/version/package/filename identifiers. They are deliberately documented rather than silently suppressed with an unproven heuristic.
+The four known false positives are structured release/version/package/filename identifiers. They remain documented rather than being silently suppressed by an unvalidated heuristic.
 
-The corpus fails CI if a labeled positive becomes a false negative or if the known false-positive count regresses beyond the documented bound.
+The corpus fails CI if a labeled positive becomes a false negative or if the false-positive count regresses beyond the documented bound.
 
 > [!NOTE]
-> These metrics describe only a **small controlled synthetic regression corpus**. They are not claims of real-world detection accuracy.
+> These figures describe a **small controlled synthetic regression corpus**. They are not claims of real-world scanner accuracy.
 
-See [`docs/DETECTION_CORPUS.md`](docs/DETECTION_CORPUS.md) for the labeled case classes, derived metrics and expansion rules.
+See [`docs/DETECTION_CORPUS.md`](docs/DETECTION_CORPUS.md).
 
----
-
-## 🛡️ Security model
-
-`entlint` is deliberately constrained.
-
-It:
-
-- performs no runtime network requests;
-- uploads no files, findings, JSON, or SARIF;
-- never validates credentials against providers;
-- never prints raw candidate secrets;
-- does not recursively follow symlinks;
-- refuses explicit symlink scan targets;
-- refuses symlinked ignore files;
-- skips binary files containing NUL bytes;
-- bounds file size by default;
-- sanitizes human-readable paths and errors;
-- uses synthetic test credentials only.
-
-For responsible disclosure and operational constraints, see:
-
-- [`SECURITY.md`](SECURITY.md)
-- [`SECURITY_OPERATION_POLICY.md`](SECURITY_OPERATION_POLICY.md)
-
----
-
-## ⚖️ What entlint is — and is not
+## What entlint is — and is not
 
 | entlint is | entlint is not |
 |---|---|
@@ -473,13 +394,9 @@ For responsible disclosure and operational constraints, see:
 | JSON/SARIF producer | Automatic SARIF uploader |
 | Review-signal generator | Proof that a finding is an active secret |
 
-For deeper repository-history or provider-aware detection, use specialized tooling alongside `entlint`.
+## CI and release validation
 
----
-
-## ✅ CI and release validation
-
-Normal CI validates `entlint` across:
+Normal CI validates the full test suite across:
 
 | Platform | Nim 2.0.0 | Stable Nim |
 |---|:---:|:---:|
@@ -487,65 +404,62 @@ Normal CI validates `entlint` across:
 | Windows | ✅ | ✅ |
 | macOS | ✅ | ✅ |
 
-Release automation additionally verifies the release tag, default-branch ancestry, source/package/README/CHANGELOG version agreement, tests, native builds, clean/finding smoke tests, masked-output behavior and SHA-256 checksum generation before publication.
+Release automation additionally verifies:
 
----
-
-<details>
-<summary><strong>🧩 Detection model details</strong></summary>
-
-`entlint` is provider-agnostic and does not maintain prefix-specific rules for cloud vendors.
-
-Candidate characters currently include:
-
-```text
-A-Z
-a-z
-0-9
-_ - + / . ~
-```
-
-Candidates must meet the configured minimum length and contain at least two character classes before entropy analysis.
-
-JWT-shaped opaque values remain eligible for detection. UUIDs and obvious multi-segment URL/path forms receive targeted false-positive filtering.
-
-A finding is a **review signal**, not proof that the candidate is a usable credential.
-
-</details>
+- stable `vMAJOR.MINOR.PATCH` tag format;
+- tag ancestry on the repository default branch;
+- version agreement across `entlint.nimble`, source, README and CHANGELOG;
+- the full test suite;
+- Linux, macOS and Windows native builds;
+- clean and finding smoke tests;
+- raw-candidate masking behavior;
+- per-binary SHA-256 checksum generation;
+- publication only after every build succeeds.
 
 <details>
-<summary><strong>🧪 Test coverage</strong></summary>
+<summary><strong>Test coverage</strong></summary>
 
 The suite covers scanner logic, the compiled CLI and detection-quality regression cases, including:
 
 - entropy and tokenization;
-- masked output guarantees;
+- masked-output guarantees;
 - line-number reporting;
 - UUID and URL/path false-positive guards;
 - JWT-shaped opaque-token detection;
 - native JSON output;
-- SARIF 2.1.0 structure, rule metadata and locations;
+- SARIF 2.1.0 structure, metadata and locations;
 - clean SARIF with an empty result set;
 - `--json` / `--sarif` mutual exclusion;
 - exit codes `0`, `1`, and `2`;
 - binary-file skipping;
 - maximum-size skipping and overflow rejection;
 - explicit exclusions;
-- automatic `.entlintignore` loading;
-- explicit `--ignore-file` loading;
+- automatic and explicit ignore-file loading;
 - malformed, oversized, missing and symlinked ignore-file rejection;
-- default directory exclusions;
 - explicit symlink-target refusal on POSIX;
 - control-character sanitization;
 - invalid or non-finite entropy thresholds;
-- TP/FP/TN/FN regression bounds across the synthetic corpus.
+- TP/FP/TN/FN regression bounds.
 
-The tests use synthetic values assembled at runtime. **Do not add real credentials or copied production tokens to fixtures.**
+Tests use synthetic values assembled at runtime. **Do not add real credentials or copied production tokens to fixtures.**
 
 </details>
 
 <details>
-<summary><strong>🏗️ Repository structure</strong></summary>
+<summary><strong>Known limitations</strong></summary>
+
+- Entropy detection is heuristic and can produce false positives and false negatives.
+- Some long structured release/version/package/filename identifiers are documented false positives.
+- Provider-side credential validity is not checked.
+- Git history is not scanned separately from files present in the selected tree.
+- Eligible files are currently read into memory rather than streamed.
+- `.entlintignore` uses substring rules rather than gitignore-compatible glob/negation semantics.
+- Binary content containing NUL bytes and oversized files are skipped by design.
+
+</details>
+
+<details>
+<summary><strong>Repository structure</strong></summary>
 
 ```text
 entlint/
@@ -574,26 +488,7 @@ entlint/
 
 </details>
 
-<details>
-<summary><strong>⚙️ Known limitations</strong></summary>
-
-Current limitations are explicit:
-
-- entropy detection is heuristic and can produce false positives and false negatives;
-- some long structured release/version/package/filename identifiers are documented false positives;
-- provider-side credential validity is not checked;
-- Git history is not scanned separately from files present in the selected tree;
-- eligible files are currently read into memory rather than streamed;
-- `.entlintignore` uses substring rules rather than gitignore-compatible glob/negation semantics;
-- binary content containing NUL bytes and oversized files are skipped by design.
-
-These limits are part of the public contract rather than hidden implementation details.
-
-</details>
-
----
-
-## 🗺️ Roadmap
+## Roadmap
 
 Current follow-up work is tracked publicly:
 
@@ -607,27 +502,7 @@ Current follow-up work is tracked publicly:
 
 See the [GitHub issue tracker](https://github.com/carnaverone/entlint/issues).
 
----
-
-## 🤝 Contributing
-
-Contributions are welcome, especially changes that preserve the project's narrow security model:
-
-- detection-quality improvements;
-- synthetic corpus expansion;
-- false-positive reduction;
-- output-format interoperability;
-- cross-platform behavior;
-- documentation and reproducibility;
-- bounded performance improvements.
-
-Start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-Do **not** submit real credentials or copied production secrets as fixtures.
-
----
-
-## 📖 Documentation
+## Documentation
 
 | Need | Document |
 |---|---|
@@ -639,18 +514,21 @@ Do **not** submit real credentials or copied production secrets as fixtures.
 | Repository boundaries | [`REPO_BOUNDARY.md`](REPO_BOUNDARY.md) |
 | Release history | [`CHANGELOG.md`](CHANGELOG.md) |
 
+## Contributing
+
+Contributions are welcome, especially changes that preserve the project's narrow security model: detection-quality improvements, synthetic corpus expansion, false-positive reduction, output interoperability, cross-platform behavior, documentation, and bounded performance improvements.
+
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+Do **not** submit real credentials or copied production secrets as fixtures.
+
+## License
+
+`entlint` is released under the **MIT License**. See [`LICENSE`](LICENSE).
+
 ---
 
-## 📜 License
-
-`entlint` is released under the **MIT License**.
-
-See [`LICENSE`](LICENSE).
-
----
-
-## Maintainer
-
-Maintained by **Carnaverone Studio**.
-
-Copyright © 2025–2026 Carnaverone.
+<p align="center">
+  Maintained by <strong>Carnaverone Studio</strong><br>
+  Copyright © 2025–2026 Carnaverone
+</p>
