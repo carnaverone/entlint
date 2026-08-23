@@ -33,10 +33,10 @@ Because entropy is heuristic, false positives and false negatives are possible. 
 
 Requirements:
 
-- Nim **1.6+** (package minimum)
+- Nim **2.0.0+** (package minimum)
 - Nimble
 
-The current GitHub CI validates the repository with the stable Nim toolchain. The package minimum is retained for compatibility, but minimum-version CI should be added before making stronger cross-version guarantees.
+GitHub CI validates the full test suite on both Nim **2.0.0** and the current stable Nim toolchain. The minimum is intentionally aligned with the `FileInfo.isSpecial` safety boundary used to reject special file objects.
 
 ```bash
 git clone https://github.com/carnaverone/entlint.git
@@ -117,7 +117,6 @@ entlint --path . --threshold 4.0
 ```
 
 ## CLI
-
 ```text
 entlint scan [PATH] [options]
 entlint file FILE [options]
@@ -237,7 +236,6 @@ Example native JSON shape:
 `entlint --sarif` emits one SARIF run with tool name `entlint` and rule ID `ENTLINT001` (`HighEntropySecretCandidate`). Findings contain a physical file location and `startLine`, which makes the output suitable for SARIF-aware code-scanning platforms.
 
 Example:
-
 ```bash
 entlint scan . --sarif > entlint.sarif
 ```
@@ -357,7 +355,6 @@ entlint.nimble                   package metadata and test task
 ## Security model and limitations
 
 `entlint`:
-
 - does not connect to the network at runtime;
 - does not upload SARIF or native JSON output;
 - does not verify whether a credential is active;
@@ -380,7 +377,6 @@ Useful follow-up work for later releases includes:
 - reduce the documented structured-identifier false positives without introducing corpus false negatives;
 - expand the synthetic detection corpus with more audited benign and positive classes;
 - optional gitignore-style glob/negation semantics if they can remain deterministic;
-- minimum-supported-Nim CI coverage;
 - optional provider-aware rules without network verification;
 - streaming analysis for larger files;
 - stable SARIF fingerprints if direct code-scanning upload use cases require them.

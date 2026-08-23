@@ -25,6 +25,7 @@ All notable user-facing changes to `entlint` are documented here.
 
 - Detection now operates on long token candidates instead of whole-file entropy.
 - Default entropy threshold is `4.0` bits/character.
+- Minimum supported Nim version is **2.0.0**, validated in CI alongside the current stable toolchain.
 - Binary files containing NUL bytes are skipped.
 - Recursive directory traversal skips symlinks and special files.
 - Explicit symlink scan targets are refused with an error rather than followed.

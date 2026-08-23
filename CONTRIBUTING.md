@@ -16,7 +16,7 @@ Changes should preserve the project's core properties:
 
 Requirements:
 
-- Nim 1.6 or newer;
+- Nim 2.0.0 or newer;
 - Nimble.
 
 Build:
