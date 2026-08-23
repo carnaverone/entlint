@@ -9,12 +9,14 @@ All notable user-facing changes to `entlint` are documented here.
 - `scan` and `file` commands.
 - CI-friendly JSON output with `--json`.
 - Repeatable path exclusions with `--exclude`.
+- Automatic root-level `.entlintignore` loading for directory scans.
+- Repeatable explicit ignore files with `--ignore-file` and opt-out with `--no-ignore-file`.
 - Configurable minimum candidate length with `--min-length`.
 - Configurable maximum file size with `--max-size`.
 - Built-in exclusions for common generated/cache directories.
 - Stable exit code `2` when suspicious candidates are found.
 - Masked preview output that never prints the full candidate.
-- CLI integration coverage for JSON, exit codes, exclusions, binary skipping, size limits and symlink boundaries.
+- CLI integration coverage for JSON, exit codes, exclusions, binary skipping, size limits, ignore files and symlink boundaries.
 - Public-facing security reporting policy.
 
 ### Changed
@@ -25,6 +27,7 @@ All notable user-facing changes to `entlint` are documented here.
 - Recursive directory traversal skips symlinks and special files.
 - Explicit symlink scan targets are refused with an error rather than followed.
 - UUIDs and obvious multi-segment URLs/paths are filtered as common false positives.
+- Exclusion matching normalizes path separators while keeping simple case-sensitive substring semantics.
 - Non-finite entropy thresholds such as `NaN` are rejected.
 - Oversized `--max-size` values that would overflow are rejected.
 - Human-readable paths/errors sanitize control characters to avoid terminal/log injection.
@@ -36,3 +39,5 @@ All notable user-facing changes to `entlint` are documented here.
 - Test fixtures use synthetic values assembled at runtime.
 - Runtime scanner behavior remains local-only with no network service dependency.
 - Explicit and recursive symlink boundaries are covered by regression tests.
+- Ignore files must be regular files; symlinked ignore files are refused.
+- Ignore files reject NUL/control characters and are bounded to 256 KiB, 2,048 rules and 4,096 characters per rule.

@@ -27,9 +27,19 @@ The project is designed to preserve these properties:
 - invalid or overflowing size limits are rejected;
 - recursive directory traversal does not follow symlinks or special files;
 - an explicit symlink scan target is refused instead of followed;
+- ignore files must be regular files and are never followed through symlinks;
+- ignore-file rules reject NUL/control characters and enforce bounded file/rule sizes;
 - findings use deterministic exit codes suitable for CI.
 
 A regression that violates one of these properties should be treated as a security issue.
+
+## Ignore configuration
+
+`.entlintignore`, `--ignore-file`, and `--exclude` intentionally suppress scanning of matching paths. They are repository/operator configuration, not a security proof.
+
+Review ignore-rule changes carefully in security-sensitive repositories. An attacker who can modify ignore configuration may be able to hide matching files from an entropy scan even though the scanner itself remains local and non-networked.
+
+The current ignore-file parser deliberately does **not** implement gitignore glob or negation semantics. It accepts bounded, case-sensitive path fragments only. This keeps matching predictable and reduces parser complexity.
 
 ## What to report
 
@@ -38,7 +48,8 @@ Useful security reports include, for example:
 - a code path that prints an unmasked candidate secret;
 - unexpected network access or telemetry;
 - path handling that escapes the requested scan scope;
-- symlink traversal, whether recursive or through an explicit target;
+- symlink traversal, whether recursive, through an explicit target, or through an ignore file;
+- ignore-file parsing that bypasses documented size/control-character boundaries;
 - control-character or terminal escape injection in human-readable output;
 - malformed input that causes unsafe disclosure;
 - CLI parsing that bypasses configured safety limits;

@@ -90,6 +90,29 @@ proc testScannerCore() =
   doAssert preview.len > 0
   doAssert preview != sample
 
+  # Ignore rules are deliberately simpler than gitignore syntax.
+  let ignoreRules = parseIgnoreRules(
+    "# comment\n\nfixtures/\n generated.txt \nwindows\\cache\\\n"
+  )
+  doAssert ignoreRules == @["fixtures/", "generated.txt", "windows/cache/"]
+  doAssert pathMatchesPattern("project/fixtures/token.txt", ignoreRules[0])
+  doAssert pathMatchesPattern("project\\windows\\cache\\token.txt", ignoreRules[2])
+  doAssert not pathMatchesPattern("project/src/token.txt", ignoreRules[0])
+
+  var rejectedNul = false
+  try:
+    discard parseIgnoreRules("safe\ninvalid\0rule\n")
+  except ValueError:
+    rejectedNul = true
+  doAssert rejectedNul
+
+  var rejectedControl = false
+  try:
+    discard parseIgnoreRules("safe\ninvalid" & char(1) & "rule\n")
+  except ValueError:
+    rejectedControl = true
+  doAssert rejectedControl
+
 proc testCliIntegration() =
   let nimExe = findExe("nim")
   doAssert nimExe.len > 0, "nim executable must be available for CLI integration tests"
@@ -203,6 +226,87 @@ proc testCliIntegration() =
     "--json"
   ])
   doAssert overflowingSize.exitCode == 1
+
+  # Root .entlintignore is loaded automatically for directory scans.
+  let ignoreRoot = tempRoot / "ignore-case"
+  createDir(ignoreRoot)
+  let ignoredSecret = ignoreRoot / "ignored-secret.txt"
+  writeFile(ignoredSecret, "token=" & sample & "\n")
+  writeFile(ignoreRoot / DefaultIgnoreFile,
+            "# local generated fixture\nignored-secret.txt\n")
+
+  let autoIgnored = runCommand(binaryPath, @["scan", ignoreRoot, "--json"])
+  doAssert autoIgnored.exitCode == 0, autoIgnored.output
+  doAssert parseJson(autoIgnored.output)["findings_count"].getInt() == 0
+
+  let ignoreDisabled = runCommand(binaryPath, @[
+    "scan", ignoreRoot, "--no-ignore-file", "--json"
+  ])
+  doAssert ignoreDisabled.exitCode == 2, ignoreDisabled.output
+  doAssert parseJson(ignoreDisabled.output)["findings_count"].getInt() == 1
+
+  # Explicit ignore files can be supplied independently of the scan root.
+  let customRoot = tempRoot / "custom-ignore-case"
+  createDir(customRoot)
+  let customSecret = customRoot / "custom-secret.txt"
+  let customIgnore = tempRoot / "custom.ignore"
+  writeFile(customSecret, "token=" & sample & "\n")
+  writeFile(customIgnore, "custom-secret.txt\n")
+
+  let customIgnored = runCommand(binaryPath, @[
+    "scan", customRoot,
+    "--no-ignore-file",
+    "--ignore-file", customIgnore,
+    "--json"
+  ])
+  doAssert customIgnored.exitCode == 0, customIgnored.output
+  doAssert parseJson(customIgnored.output)["findings_count"].getInt() == 0
+
+  let missingIgnore = runCommand(binaryPath, @[
+    "scan", customRoot,
+    "--ignore-file", tempRoot / "missing.ignore",
+    "--json"
+  ])
+  doAssert missingIgnore.exitCode == 1
+  doAssert not missingIgnore.output.contains(sample)
+
+  let nulIgnore = tempRoot / "nul.ignore"
+  writeFile(nulIgnore, "custom-secret.txt\0ignored\n")
+  let invalidIgnore = runCommand(binaryPath, @[
+    "scan", customRoot,
+    "--ignore-file", nulIgnore,
+    "--json"
+  ])
+  doAssert invalidIgnore.exitCode == 1
+  doAssert not invalidIgnore.output.contains(sample)
+
+  let oversizedIgnore = tempRoot / "oversized.ignore"
+  writeFile(oversizedIgnore, "a".repeat(256 * 1024 + 1))
+  let oversizedIgnoreResult = runCommand(binaryPath, @[
+    "scan", customRoot,
+    "--ignore-file", oversizedIgnore,
+    "--json"
+  ])
+  doAssert oversizedIgnoreResult.exitCode == 1
+  doAssert not oversizedIgnoreResult.output.contains(sample)
+
+  when defined(posix):
+    let linkedIgnoreRoot = tempRoot / "linked-ignore-case"
+    createDir(linkedIgnoreRoot)
+    writeFile(linkedIgnoreRoot / "linked-secret.txt", "token=" & sample & "\n")
+    let ignoreTarget = tempRoot / "ignore-target.txt"
+    writeFile(ignoreTarget, "linked-secret.txt\n")
+    let linkedIgnorePath = linkedIgnoreRoot / DefaultIgnoreFile
+    let linkedIgnoreCreated = runCommand(findExe("ln"), @[
+      "-s", ignoreTarget, linkedIgnorePath
+    ])
+    doAssert linkedIgnoreCreated.exitCode == 0, linkedIgnoreCreated.output
+
+    let linkedIgnoreScan = runCommand(binaryPath, @[
+      "scan", linkedIgnoreRoot, "--json"
+    ])
+    doAssert linkedIgnoreScan.exitCode == 1
+    doAssert not linkedIgnoreScan.output.contains(sample)
 
 proc main() =
   testScannerCore()

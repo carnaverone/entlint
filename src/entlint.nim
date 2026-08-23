@@ -5,6 +5,10 @@ const
   DefaultThreshold* = 4.0
   DefaultMinLength* = 20
   DefaultMaxSize* = 2 * 1024 * 1024
+  DefaultIgnoreFile* = ".entlintignore"
+  MaxIgnoreFileSize = 256 * 1024
+  MaxIgnoreRules = 2048
+  MaxIgnoreRuleLength = 4096
   DefaultExcludeDirs = [".git", "node_modules", "nimcache", "zig-cache",
                         "zig-out", "target", "dist", "build", ".cache"]
 
@@ -21,10 +25,12 @@ type
     minLength: int
     maxSize: int64
     excludes: seq[string]
+    ignoreFiles: seq[string]
     wantPreview: bool
     wantLines: bool
     jsonOutput: bool
     useDefaultExcludes: bool
+    useDefaultIgnoreFile: bool
 
   ScanStats = object
     scannedFiles: int
@@ -47,6 +53,8 @@ Options:
   --max-size N              maximum file size; accepts bytes, K/KiB, M/MiB
                             (default: 2 MiB)
   --exclude PATTERN         exclude paths containing PATTERN (repeatable)
+  --ignore-file FILE        load path-fragment exclusions from FILE (repeatable)
+  --no-ignore-file          do not auto-load PATH/.entlintignore for directory scans
   --no-default-excludes     scan default excluded directories too
   --preview                 show masked previews only
   --lines                   include line numbers in human output
@@ -54,9 +62,13 @@ Options:
   --version                 print version and exit
   -h, --help                show this help and exit
 
+Ignore-file format:
+  blank lines and lines beginning with # are ignored;
+  other lines are case-sensitive path substrings, not gitignore/glob syntax.
+
 Exit codes:
   0  no findings
-  1  usage, I/O, or scan error
+  1  usage, I/O, safety-boundary, or scan error
   2  one or more suspicious candidates found
 """
 
@@ -234,6 +246,38 @@ proc pathHasComponent(path, component: string): bool =
     if part == component:
       return true
 
+proc pathMatchesPattern*(path, pattern: string): bool =
+  ## Exclusion patterns are deliberately simple, normalized path substrings.
+  if pattern.len == 0:
+    return false
+  let normalizedPath = path.replace("\\", "/")
+  let normalizedPattern = pattern.replace("\\", "/")
+  normalizedPath.contains(normalizedPattern)
+
+proc parseIgnoreRules*(text: string): seq[string] =
+  ## Parse .entlintignore-style path fragments without gitignore/glob semantics.
+  if text.find('\0') >= 0:
+    raise newException(ValueError, "ignore file contains NUL bytes")
+
+  for rawLine in text.splitLines():
+    var rule = rawLine.strip()
+    if rule.len == 0 or rule.startsWith("#"):
+      continue
+
+    if rule.len > MaxIgnoreRuleLength:
+      raise newException(ValueError, "ignore rule is too long")
+
+    for ch in rule:
+      let code = ord(ch)
+      if code < 32 or code == 127:
+        raise newException(ValueError, "ignore rule contains a control character")
+
+    rule = rule.replace("\\", "/")
+    result.add(rule)
+
+    if result.len > MaxIgnoreRules:
+      raise newException(ValueError, "too many ignore rules")
+
 proc shouldSkipPath(path: string; opts: ScanOptions): bool =
   if opts.useDefaultExcludes:
     for component in DefaultExcludeDirs:
@@ -241,7 +285,7 @@ proc shouldSkipPath(path: string; opts: ScanOptions): bool =
         return true
 
   for pattern in opts.excludes:
-    if pattern.len > 0 and path.contains(pattern):
+    if pathMatchesPattern(path, pattern):
       return true
 
 proc parseSize(value: string): int64 =
@@ -276,6 +320,42 @@ proc parseSize(value: string): int64 =
     raise newException(ValueError, "size is too large")
 
   result = int64(amount) * multiplier
+
+proc loadIgnoreFile(path: string; opts: var ScanOptions; stats: var ScanStats) =
+  try:
+    let info = getFileInfo(path, followSymlink = false)
+    if info.kind == pcLinkToFile or info.kind == pcLinkToDir:
+      raise newException(ValueError, "refusing to follow ignore-file symlink")
+    if info.isSpecial or info.kind != pcFile:
+      raise newException(ValueError, "ignore file must be a regular file")
+
+    let size = getFileSize(path)
+    if size > BiggestInt(MaxIgnoreFileSize):
+      raise newException(ValueError, "ignore file exceeds 256 KiB")
+
+    let data = readFile(path)
+    for rule in parseIgnoreRules(data):
+      opts.excludes.add(rule)
+  except CatchableError as err:
+    inc stats.errors
+    stderr.writeLine("entlint: ignore file ", safeDisplayText(path), ": ",
+                     safeDisplayText(err.msg))
+
+proc loadConfiguredIgnoreFiles(target: string;
+                               targetIsDirectory: bool;
+                               opts: var ScanOptions;
+                               stats: var ScanStats) =
+  for ignorePath in opts.ignoreFiles:
+    loadIgnoreFile(ignorePath, opts, stats)
+    if stats.errors > 0:
+      return
+
+  if not targetIsDirectory or not opts.useDefaultIgnoreFile:
+    return
+
+  let defaultIgnorePath = target / DefaultIgnoreFile
+  if fileExists(defaultIgnorePath) or dirExists(defaultIgnorePath):
+    loadIgnoreFile(defaultIgnorePath, opts, stats)
 
 proc scanOneFile(path: string; opts: ScanOptions; stats: var ScanStats) =
   if shouldSkipPath(path, opts):
@@ -391,10 +471,12 @@ proc main() =
     minLength: DefaultMinLength,
     maxSize: int64(DefaultMaxSize),
     excludes: @[],
+    ignoreFiles: @[],
     wantPreview: false,
     wantLines: false,
     jsonOutput: false,
-    useDefaultExcludes: true
+    useDefaultExcludes: true,
+    useDefaultIgnoreFile: true
   )
 
   let args = commandLineParams()
@@ -424,6 +506,8 @@ proc main() =
       opts.jsonOutput = true
     elif arg == "--no-default-excludes":
       opts.useDefaultExcludes = false
+    elif arg == "--no-ignore-file":
+      opts.useDefaultIgnoreFile = false
     else:
       var value = ""
       if optionValue(arg, "path", value, index, args):
@@ -447,6 +531,8 @@ proc main() =
           quit("invalid --max-size value: " & safeDisplayText(value), 1)
       elif optionValue(arg, "exclude", value, index, args):
         opts.excludes.add(value)
+      elif optionValue(arg, "ignore-file", value, index, args):
+        opts.ignoreFiles.add(value)
       elif arg.startsWith("-"):
         quit("unknown option: " & safeDisplayText(arg) & "\nUse --help.", 1)
       else:
@@ -478,14 +564,18 @@ proc main() =
                        safeDisplayText(target))
       inc stats.errors
     elif targetInfo.kind == pcFile:
-      scanOneFile(target, opts, stats)
+      loadConfiguredIgnoreFiles(target, false, opts, stats)
+      if stats.errors == 0:
+        scanOneFile(target, opts, stats)
     elif targetInfo.kind == pcDir:
       if command == "file":
         stderr.writeLine("entlint: expected a regular file: ",
                          safeDisplayText(target))
         inc stats.errors
       else:
-        scanDirectory(target, opts, stats)
+        loadConfiguredIgnoreFiles(target, true, opts, stats)
+        if stats.errors == 0:
+          scanDirectory(target, opts, stats)
   except OSError:
     if command == "file":
       stderr.writeLine("entlint: file not found or inaccessible: ",
