@@ -466,20 +466,34 @@ proc main() =
     quit("file command requires a file path", 1)
 
   var stats: ScanStats
-  if command == "file":
-    if not fileExists(target):
-      stderr.writeLine("entlint: file not found: ", safeDisplayText(target))
+  try:
+    let targetInfo = getFileInfo(target, followSymlink = false)
+
+    if targetInfo.kind == pcLinkToFile or targetInfo.kind == pcLinkToDir:
+      stderr.writeLine("entlint: refusing to follow symlink target: ",
+                       safeDisplayText(target))
       inc stats.errors
-    else:
-      scanOneFile(target, opts, stats)
-  else:
-    if fileExists(target):
-      scanOneFile(target, opts, stats)
-    elif dirExists(target):
-      scanDirectory(target, opts, stats)
-    else:
-      stderr.writeLine("entlint: path not found: ", safeDisplayText(target))
+    elif targetInfo.isSpecial:
+      stderr.writeLine("entlint: special file not scanned: ",
+                       safeDisplayText(target))
       inc stats.errors
+    elif targetInfo.kind == pcFile:
+      scanOneFile(target, opts, stats)
+    elif targetInfo.kind == pcDir:
+      if command == "file":
+        stderr.writeLine("entlint: expected a regular file: ",
+                         safeDisplayText(target))
+        inc stats.errors
+      else:
+        scanDirectory(target, opts, stats)
+  except OSError:
+    if command == "file":
+      stderr.writeLine("entlint: file not found or inaccessible: ",
+                       safeDisplayText(target))
+    else:
+      stderr.writeLine("entlint: path not found or inaccessible: ",
+                       safeDisplayText(target))
+    inc stats.errors
 
   if opts.jsonOutput:
     printJson(stats, target, opts)
