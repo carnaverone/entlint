@@ -14,27 +14,54 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Nim
         uses: jiro4989/setup-nim-action@v1
         with:
           nim-version: stable
 
-      - name: Validate tag and source version
+      - name: Validate tag, branch ancestry, and source version
         shell: bash
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
 
-          if [ "${TAG}" = "${VERSION}" ] || [ -z "${VERSION}" ]; then
-            echo "release tag must use the v<version> form" >&2
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release tag must use vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          TAG_COMMIT="$(git rev-list -n 1 "${TAG}")"
+          git fetch --no-tags origin "+refs/heads/${GITHUB_DEFAULT_BRANCH}:refs/remotes/origin/${GITHUB_DEFAULT_BRANCH}"
+          if ! git merge-base --is-ancestor "${TAG_COMMIT}" "origin/${GITHUB_DEFAULT_BRANCH}"; then
+            echo "release tag commit is not contained in ${GITHUB_DEFAULT_BRANCH}" >&2
             exit 1
           fi
 
           grep -Fq "version       = \"${VERSION}\"" entlint.nimble
           grep -Fq "Version* = \"${VERSION}\"" src/entlint.nim
-          grep -Eq "^## ${VERSION} - [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md
+
+          CHANGELOG_PREFIX="## ${VERSION} - "
+          mapfile -t CHANGELOG_LINES < <(grep -F "${CHANGELOG_PREFIX}" CHANGELOG.md || true)
+          if [ "${#CHANGELOG_LINES[@]}" -ne 1 ]; then
+            echo "CHANGELOG must contain exactly one release heading for ${VERSION}" >&2
+            exit 1
+          fi
+
+          CHANGELOG_LINE="${CHANGELOG_LINES[0]}"
+          case "${CHANGELOG_LINE}" in
+            "${CHANGELOG_PREFIX}"*) ;;
+            *) echo "CHANGELOG release heading must start exactly with: ${CHANGELOG_PREFIX}" >&2; exit 1 ;;
+          esac
+
+          RELEASE_DATE="${CHANGELOG_LINE#"${CHANGELOG_PREFIX}"}"
+          if [[ ! "${RELEASE_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "CHANGELOG release heading must end with YYYY-MM-DD" >&2
+            exit 1
+          fi
 
       - name: Prime Nimble index
         run: nimble refresh -y
@@ -81,6 +108,33 @@ jobs:
           VERSION_OUTPUT="$("./dist/${OUT}" --version)"
           printf '%s\n' "${VERSION_OUTPUT}"
           printf '%s\n' "${VERSION_OUTPUT}" | grep -Fq "${VERSION}"
+
+          printf 'ordinary configuration text\n' > smoke-clean.txt
+          set +e
+          "./dist/${OUT}" file smoke-clean.txt > smoke-clean.out 2>&1
+          CLEAN_CODE=$?
+          set -e
+          if [ "${CLEAN_CODE}" -ne 0 ]; then
+            cat smoke-clean.out
+            echo "clean smoke fixture returned ${CLEAN_CODE}, expected 0" >&2
+            exit 1
+          fi
+
+          SYNTHETIC="AbCdEfGh""12345678""_+-/WXYZ"
+          printf 'token=%s\n' "${SYNTHETIC}" > smoke-finding.txt
+          set +e
+          "./dist/${OUT}" file smoke-finding.txt --json > smoke-finding.out 2>&1
+          FINDING_CODE=$?
+          set -e
+          if [ "${FINDING_CODE}" -ne 2 ]; then
+            cat smoke-finding.out
+            echo "finding smoke fixture returned ${FINDING_CODE}, expected 2" >&2
+            exit 1
+          fi
+          if grep -Fq "${SYNTHETIC}" smoke-finding.out; then
+            echo "raw synthetic candidate appeared in scanner output" >&2
+            exit 1
+          fi
 
           cd dist
           if command -v sha256sum >/dev/null 2>&1; then
