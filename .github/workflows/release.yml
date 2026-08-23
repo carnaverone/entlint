@@ -51,6 +51,12 @@ jobs:
           grep -Fq "version       = \"${VERSION}\"" entlint.nimble
           grep -Fq "Version* = \"${VERSION}\"" src/entlint.nim
 
+          README_RELEASE="Current release: **${VERSION}**"
+          if [ "$(grep -Fxc "${README_RELEASE}" README.md || true)" -ne 1 ]; then
+            echo "README must contain exactly one canonical release declaration: ${README_RELEASE}" >&2
+            exit 1
+          fi
+
           CHANGELOG_PREFIX="## ${VERSION} - "
           mapfile -t CHANGELOG_LINES < <(grep -F "${CHANGELOG_PREFIX}" CHANGELOG.md || true)
           if [ "${#CHANGELOG_LINES[@]}" -ne 1 ]; then
