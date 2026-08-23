@@ -264,17 +264,20 @@ proc parseIgnoreRules*(text: string): seq[string] =
     raise newException(ValueError, "ignore file contains NUL bytes")
 
   for rawLine in text.splitLines():
-    var rule = rawLine.strip()
-    if rule.len == 0 or rule.startsWith("#"):
+    let stripped = rawLine.strip()
+    if stripped.len == 0 or stripped.startsWith("#"):
       continue
 
-    if rule.len > MaxIgnoreRuleLength:
-      raise newException(ValueError, "ignore rule is too long")
-
-    for ch in rule:
+    # Validate the original active-rule line before whitespace normalization so
+    # leading/trailing controls cannot be silently stripped into a broader rule.
+    for ch in rawLine:
       let code = ord(ch)
       if code < 32 or code == 127:
         raise newException(ValueError, "ignore rule contains a control character")
+
+    var rule = stripped
+    if rule.len > MaxIgnoreRuleLength:
+      raise newException(ValueError, "ignore rule is too long")
 
     rule = rule.replace("\\", "/")
     result.add(rule)
