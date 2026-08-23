@@ -30,6 +30,15 @@ proc testScannerCore() =
   doAssert masked.contains("*")
   doAssert not masked.contains(sample)
 
+  let dirtyDisplay = "safe\npath\t" & char(27) & "tail"
+  let safeDisplay = safeDisplayText(dirtyDisplay)
+  doAssert not safeDisplay.contains("\n")
+  doAssert not safeDisplay.contains("\t")
+  doAssert not safeDisplay.contains($char(27))
+  doAssert safeDisplay.contains("\\n")
+  doAssert safeDisplay.contains("\\t")
+  doAssert safeDisplay.contains("?")
+
   let tokens = candidateTokens("prefix=" & sample & " suffix", minLength = 20)
   doAssert tokens.len == 1
   doAssert tokens[0] == sample
@@ -176,6 +185,13 @@ proc testCliIntegration() =
     "scan", tempRoot, "--min", "nan", "--json"
   ])
   doAssert invalidThreshold.exitCode == 1
+
+  let overflowingSize = runCommand(binaryPath, @[
+    "scan", tempRoot,
+    "--max-size", "9223372036854775807M",
+    "--json"
+  ])
+  doAssert overflowingSize.exitCode == 1
 
 proc main() =
   testScannerCore()
