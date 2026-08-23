@@ -170,7 +170,9 @@ proc scanText*(text: string;
   if text.find('\0') >= 0:
     return @[]
 
-  for lineIndex, line in text.splitLines():
+  let lines = text.splitLines()
+  for lineIndex in 0 ..< lines.len:
+    let line = lines[lineIndex]
     for token in candidateTokens(line, minLength):
       if isLikelySecretToken(token, threshold, minLength):
         let preview = if wantPreview: maskSecret(token) else: ""
