@@ -291,15 +291,34 @@ masked finding + deterministic exit code
 
 Use `--min`, `--min-length`, `--exclude`, `.entlintignore`, `--ignore-file`, and `--max-size` to tune the scanner for a repository. A finding is a **review signal**, not proof that a credential is valid.
 
+## Detection-quality baseline
+
+A public synthetic regression corpus now makes the heuristic's current tradeoffs explicit. It is run by `nimble test` and contains **22 labeled cases** built from safe synthetic fragments.
+
+Current v0.2 baseline:
+
+| Metric | Count |
+| --- | ---: |
+| True positives | 8 |
+| False negatives | 0 |
+| True negatives | 10 |
+| False positives | 4 |
+
+The four known false positives are structured release/version/package/filename identifiers. They are deliberately documented rather than silently suppressed with an unproven heuristic.
+
+The corpus enforces **zero false negatives on its eight positive cases** and fails CI if the known false-positive count increases above four. These figures describe only this small controlled regression corpus; they are **not** claims of real-world detection accuracy.
+
+See [`docs/DETECTION_CORPUS.md`](docs/DETECTION_CORPUS.md) for the case classes, current derived metrics, known limitations, and rules for expanding the corpus safely.
+
 ## Development and tests
 
-Run the test suite:
+Run the full test suite:
 
 ```bash
 nimble test -y
 ```
 
-The test suite covers both scanner logic and the compiled CLI. It checks:
+The suite covers scanner logic, the compiled CLI, and detection-quality regression cases. It checks:
 
 - entropy and tokenization;
 - masked output guarantees;
@@ -320,16 +339,19 @@ The test suite covers both scanner logic and the compiled CLI. It checks:
 - default `.git` exclusion behavior;
 - explicit symlink-target refusal on POSIX;
 - control-character sanitization for human/log output;
-- invalid/non-finite entropy thresholds.
+- invalid/non-finite entropy thresholds;
+- TP/FP/TN/FN regression bounds across the synthetic detection corpus.
 
 The tests use synthetic values assembled at runtime. **Do not add real credentials or copied production tokens to fixtures.**
 
 Project layout:
 
 ```text
-src/entlint.nim        CLI and scanner implementation
-tests/test_cli.nim     unit + CLI integration coverage
-entlint.nimble         package metadata and test task
+src/entlint.nim                  CLI and scanner implementation
+tests/test_cli.nim               unit + CLI integration coverage
+tests/test_detection_corpus.nim  detection-quality regression gate
+docs/DETECTION_CORPUS.md         corpus rationale and baseline
+entlint.nimble                   package metadata and test task
 ```
 
 ## Security model and limitations
@@ -346,6 +368,7 @@ entlint.nimble         package metadata and test task
 - intentionally skips binary data containing NUL bytes and oversized files by default;
 - reads eligible files into memory rather than streaming them;
 - uses heuristic entropy detection, so findings require review;
+- currently has documented false positives for some long structured release/version/package/filename identifiers;
 - implements simple ignore-file substring rules, **not** gitignore-compatible glob/negation semantics.
 
 For responsible disclosure, see [`SECURITY.md`](SECURITY.md). Operational repository boundaries are documented separately in [`SECURITY_OPERATION_POLICY.md`](SECURITY_OPERATION_POLICY.md).
@@ -354,12 +377,13 @@ For responsible disclosure, see [`SECURITY.md`](SECURITY.md). Operational reposi
 
 Useful follow-up work for later releases includes:
 
+- reduce the documented structured-identifier false positives without introducing corpus false negatives;
+- expand the synthetic detection corpus with more audited benign and positive classes;
 - optional gitignore-style glob/negation semantics if they can remain deterministic;
 - minimum-supported-Nim CI coverage;
 - optional provider-aware rules without network verification;
 - streaming analysis for larger files;
-- measured false-positive/false-negative benchmark corpora;
-- stable SARIF fingerprints if direct API upload use cases require them.
+- stable SARIF fingerprints if direct code-scanning upload use cases require them.
 
 ## Contributing
 
