@@ -85,6 +85,23 @@ proc maskSecret*(s: string): string =
   result.add("*".repeat(s.len - 4))
   result.add(s[^2 .. ^1])
 
+proc safeDisplayText*(s: string): string =
+  ## Keep human/stderr output single-line and neutralize terminal controls.
+  for ch in s:
+    case ch
+    of '\n':
+      result.add("\\n")
+    of '\r':
+      result.add("\\r")
+    of '\t':
+      result.add("\\t")
+    else:
+      let code = ord(ch)
+      if code < 32 or code == 127:
+        result.add('?')
+      else:
+        result.add(ch)
+
 proc findPreview*(s: string; win = 32; thr = DefaultThreshold): string =
   ## Compatibility helper from v0.1. The returned preview is always masked.
   if win <= 0:
@@ -254,6 +271,10 @@ proc parseSize(value: string): int64 =
   if amount <= 0:
     raise newException(ValueError, "size must be greater than zero")
 
+  let maxAmount = BiggestInt(high(int64) div multiplier)
+  if amount > maxAmount:
+    raise newException(ValueError, "size is too large")
+
   result = int64(amount) * multiplier
 
 proc scanOneFile(path: string; opts: ScanOptions; stats: var ScanStats) =
@@ -278,7 +299,8 @@ proc scanOneFile(path: string; opts: ScanOptions; stats: var ScanStats) =
       stats.findings.add(finding)
   except CatchableError as err:
     inc stats.errors
-    stderr.writeLine("entlint: ", path, ": ", err.msg)
+    stderr.writeLine("entlint: ", safeDisplayText(path), ": ",
+                     safeDisplayText(err.msg))
 
 proc scanDirectory(path: string; opts: ScanOptions; stats: var ScanStats) =
   try:
@@ -296,7 +318,8 @@ proc scanDirectory(path: string; opts: ScanOptions; stats: var ScanStats) =
         inc stats.skippedEntries
   except CatchableError as err:
     inc stats.errors
-    stderr.writeLine("entlint: ", path, ": ", err.msg)
+    stderr.writeLine("entlint: ", safeDisplayText(path), ": ",
+                     safeDisplayText(err.msg))
 
 proc findingToJson(finding: Finding; includePreview: bool): JsonNode =
   result = newJObject()
@@ -327,7 +350,7 @@ proc printJson(stats: ScanStats; target: string; opts: ScanOptions) =
 
 proc printHuman(stats: ScanStats; opts: ScanOptions) =
   for finding in stats.findings:
-    var message = "HIGH " & finding.path
+    var message = "HIGH " & safeDisplayText(finding.path)
     if opts.wantLines:
       message.add(":" & $finding.line)
     message.add(" entropy=" & formatFloat(finding.entropy, ffDecimal, 3))
@@ -411,21 +434,21 @@ proc main() =
         try:
           opts.threshold = parseFloat(value)
         except ValueError:
-          quit("invalid entropy threshold: " & value, 1)
+          quit("invalid entropy threshold: " & safeDisplayText(value), 1)
       elif optionValue(arg, "min-length", value, index, args):
         try:
           opts.minLength = parseInt(value)
         except ValueError:
-          quit("invalid --min-length value: " & value, 1)
+          quit("invalid --min-length value: " & safeDisplayText(value), 1)
       elif optionValue(arg, "max-size", value, index, args):
         try:
           opts.maxSize = parseSize(value)
         except ValueError:
-          quit("invalid --max-size value: " & value, 1)
+          quit("invalid --max-size value: " & safeDisplayText(value), 1)
       elif optionValue(arg, "exclude", value, index, args):
         opts.excludes.add(value)
       elif arg.startsWith("-"):
-        quit("unknown option: " & arg & "\nUse --help.", 1)
+        quit("unknown option: " & safeDisplayText(arg) & "\nUse --help.", 1)
       else:
         if targetSet:
           quit("only one scan target may be supplied", 1)
@@ -445,7 +468,7 @@ proc main() =
   var stats: ScanStats
   if command == "file":
     if not fileExists(target):
-      stderr.writeLine("entlint: file not found: ", target)
+      stderr.writeLine("entlint: file not found: ", safeDisplayText(target))
       inc stats.errors
     else:
       scanOneFile(target, opts, stats)
@@ -455,7 +478,7 @@ proc main() =
     elif dirExists(target):
       scanDirectory(target, opts, stats)
     else:
-      stderr.writeLine("entlint: path not found: ", target)
+      stderr.writeLine("entlint: path not found: ", safeDisplayText(target))
       inc stats.errors
 
   if opts.jsonOutput:
