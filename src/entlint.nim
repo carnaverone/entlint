@@ -27,6 +27,7 @@ type
     maxSize: int64
     excludes: seq[string]
     ignoreFiles: seq[string]
+    ignoreRuleCount: int
     wantPreview: bool
     wantLines: bool
     jsonOutput: bool
@@ -281,15 +282,27 @@ proc parseIgnoreRules*(text: string): seq[string] =
     if result.len > MaxIgnoreRules:
       raise newException(ValueError, "too many ignore rules")
 
-proc shouldSkipPath(path: string; opts: ScanOptions): bool =
-  if opts.useDefaultExcludes:
-    for component in DefaultExcludeDirs:
-      if pathHasComponent(path, component):
-        return true
-
+proc matchesUserExclusion(path: string; opts: ScanOptions): bool =
   for pattern in opts.excludes:
     if pathMatchesPattern(path, pattern):
       return true
+
+proc relativeForDefaultExcludes(path, scanRoot: string): string =
+  ## Default directory names are interpreted inside the selected scan root.
+  ## Ancestors of the requested root must not make the whole scan disappear.
+  try:
+    result = relativePath(path, scanRoot)
+  except CatchableError:
+    result = path
+
+proc shouldSkipDirectory(path, scanRoot: string; opts: ScanOptions): bool =
+  if opts.useDefaultExcludes:
+    let relative = relativeForDefaultExcludes(path, scanRoot)
+    for component in DefaultExcludeDirs:
+      if pathHasComponent(relative, component):
+        return true
+
+  matchesUserExclusion(path, opts)
 
 proc parseSize(value: string): int64 =
   var text = value.strip().toLowerAscii()
@@ -337,8 +350,13 @@ proc loadIgnoreFile(path: string; opts: var ScanOptions; stats: var ScanStats) =
       raise newException(ValueError, "ignore file exceeds 256 KiB")
 
     let data = readFile(path)
-    for rule in parseIgnoreRules(data):
+    let rules = parseIgnoreRules(data)
+    if opts.ignoreRuleCount + rules.len > MaxIgnoreRules:
+      raise newException(ValueError, "too many active ignore rules across loaded files")
+
+    for rule in rules:
       opts.excludes.add(rule)
+    opts.ignoreRuleCount += rules.len
   except CatchableError as err:
     inc stats.errors
     stderr.writeLine("entlint: ignore file ", safeDisplayText(path), ": ",
@@ -361,7 +379,10 @@ proc loadConfiguredIgnoreFiles(target: string;
     loadIgnoreFile(defaultIgnorePath, opts, stats)
 
 proc scanOneFile(path: string; opts: ScanOptions; stats: var ScanStats) =
-  if shouldSkipPath(path, opts):
+  # Built-in default exclusions describe directories only. A regular file may
+  # legitimately be named "build", "target", "dist", etc. User/ignore rules
+  # still apply to files.
+  if matchesUserExclusion(path, opts):
     inc stats.skippedEntries
     return
 
@@ -385,17 +406,18 @@ proc scanOneFile(path: string; opts: ScanOptions; stats: var ScanStats) =
     stderr.writeLine("entlint: ", safeDisplayText(path), ": ",
                      safeDisplayText(err.msg))
 
-proc scanDirectory(path: string; opts: ScanOptions; stats: var ScanStats) =
+proc scanDirectory(path, scanRoot: string;
+                   opts: ScanOptions; stats: var ScanStats) =
   try:
     for kind, entry in walkDir(path):
       case kind
       of pcFile:
         scanOneFile(entry, opts, stats)
       of pcDir:
-        if shouldSkipPath(entry, opts):
+        if shouldSkipDirectory(entry, scanRoot, opts):
           inc stats.skippedEntries
         else:
-          scanDirectory(entry, opts, stats)
+          scanDirectory(entry, scanRoot, opts, stats)
       else:
         # Do not follow symlinks or special files during directory traversal.
         inc stats.skippedEntries
@@ -431,6 +453,23 @@ proc printJson(stats: ScanStats; target: string; opts: ScanOptions) =
 
   echo $root
 
+proc percentEncodeUriPath(path: string): string =
+  ## Encode filesystem bytes as an RFC 3986 URI path while preserving '/'.
+  const Hex = "0123456789ABCDEF"
+  for ch in path:
+    let code = ord(ch)
+    let unreserved =
+      (ch >= 'a' and ch <= 'z') or
+      (ch >= 'A' and ch <= 'Z') or
+      (ch >= '0' and ch <= '9') or
+      ch in {'-', '.', '_', '~'}
+    if unreserved or ch == '/':
+      result.add(ch)
+    else:
+      result.add('%')
+      result.add(Hex[(code shr 4) and 0x0f])
+      result.add(Hex[code and 0x0f])
+
 proc sarifArtifactUri(path: string): string =
   ## Prefer a repository-relative URI when invoked from the repository root.
   var candidate = path
@@ -441,9 +480,10 @@ proc sarifArtifactUri(path: string): string =
   except CatchableError:
     discard
 
-  result = candidate.replace("\\", "/")
-  while result.startsWith("./") and result.len > 2:
-    result = result[2 .. ^1]
+  var normalized = candidate.replace("\\", "/")
+  while normalized.startsWith("./") and normalized.len > 2:
+    normalized = normalized[2 .. ^1]
+  result = percentEncodeUriPath(normalized)
 
 proc sarifRule(): JsonNode =
   result = newJObject()
@@ -575,6 +615,7 @@ proc main() =
     maxSize: int64(DefaultMaxSize),
     excludes: @[],
     ignoreFiles: @[],
+    ignoreRuleCount: 0,
     wantPreview: false,
     wantLines: false,
     jsonOutput: false,
@@ -683,7 +724,7 @@ proc main() =
       else:
         loadConfiguredIgnoreFiles(target, true, opts, stats)
         if stats.errors == 0:
-          scanDirectory(target, opts, stats)
+          scanDirectory(target, target, opts, stats)
   except OSError:
     if command == "file":
       stderr.writeLine("entlint: file not found or inaccessible: ",
