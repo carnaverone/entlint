@@ -1,0 +1,14 @@
+# Nim
+nimcache/
+bin/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Build artifacts
+dist/

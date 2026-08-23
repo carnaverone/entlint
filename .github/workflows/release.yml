@@ -1,0 +1,188 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify release source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+
+      - name: Validate tag, branch ancestry, and source version
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release tag must use vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+
+          if [ -z "${DEFAULT_BRANCH}" ]; then
+            echo "repository default branch was not provided by the event context" >&2
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          TAG_COMMIT="$(git rev-list -n 1 "${TAG}")"
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          if ! git merge-base --is-ancestor "${TAG_COMMIT}" "origin/${DEFAULT_BRANCH}"; then
+            echo "release tag commit is not contained in ${DEFAULT_BRANCH}" >&2
+            exit 1
+          fi
+
+          grep -Fq "version       = \"${VERSION}\"" entlint.nimble
+          grep -Fq "Version* = \"${VERSION}\"" src/entlint.nim
+
+          README_RELEASE="Current release: **${VERSION}**"
+          if [ "$(grep -Fxc "${README_RELEASE}" README.md || true)" -ne 1 ]; then
+            echo "README must contain exactly one canonical release declaration: ${README_RELEASE}" >&2
+            exit 1
+          fi
+
+          CHANGELOG_PREFIX="## ${VERSION} - "
+          mapfile -t CHANGELOG_LINES < <(grep -F "${CHANGELOG_PREFIX}" CHANGELOG.md || true)
+          if [ "${#CHANGELOG_LINES[@]}" -ne 1 ]; then
+            echo "CHANGELOG must contain exactly one release heading for ${VERSION}" >&2
+            exit 1
+          fi
+
+          CHANGELOG_LINE="${CHANGELOG_LINES[0]}"
+          case "${CHANGELOG_LINE}" in
+            "${CHANGELOG_PREFIX}"*) ;;
+            *) echo "CHANGELOG release heading must start exactly with: ${CHANGELOG_PREFIX}" >&2; exit 1 ;;
+          esac
+
+          RELEASE_DATE="${CHANGELOG_LINE#"${CHANGELOG_PREFIX}"}"
+          if [[ ! "${RELEASE_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo "CHANGELOG release heading must end with YYYY-MM-DD" >&2
+            exit 1
+          fi
+
+      - name: Prime Nimble index
+        run: nimble refresh -y
+
+      - name: Test
+        run: nimble test -y
+
+  build:
+    name: Build ${{ matrix.os }}
+    needs: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+
+      - name: Build, smoke-test, and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          mkdir -p dist
+
+          case "${{ matrix.os }}" in
+            ubuntu-latest) OS_ID="linux"; EXT="" ;;
+            macos-latest) OS_ID="macos"; EXT="" ;;
+            windows-latest) OS_ID="windows"; EXT=".exe" ;;
+            *) echo "unsupported runner: ${{ matrix.os }}" >&2; exit 1 ;;
+          esac
+
+          ARCH="$(uname -m)"
+          OUT="entlint-${TAG}-${OS_ID}-${ARCH}${EXT}"
+          nim c -d:release -o:"dist/${OUT}" src/entlint.nim
+
+          VERSION_OUTPUT="$("./dist/${OUT}" --version)"
+          printf '%s\n' "${VERSION_OUTPUT}"
+          printf '%s\n' "${VERSION_OUTPUT}" | grep -Fq "${VERSION}"
+
+          printf 'ordinary configuration text\n' > smoke-clean.txt
+          set +e
+          "./dist/${OUT}" file smoke-clean.txt > smoke-clean.out 2>&1
+          CLEAN_CODE=$?
+          set -e
+          if [ "${CLEAN_CODE}" -ne 0 ]; then
+            cat smoke-clean.out
+            echo "clean smoke fixture returned ${CLEAN_CODE}, expected 0" >&2
+            exit 1
+          fi
+
+          SYNTHETIC="AbCdEfGh""12345678""_+-/WXYZ"
+          printf 'token=%s\n' "${SYNTHETIC}" > smoke-finding.txt
+          set +e
+          "./dist/${OUT}" file smoke-finding.txt --json > smoke-finding.out 2>&1
+          FINDING_CODE=$?
+          set -e
+          if [ "${FINDING_CODE}" -ne 2 ]; then
+            cat smoke-finding.out
+            echo "finding smoke fixture returned ${FINDING_CODE}, expected 2" >&2
+            exit 1
+          fi
+          if grep -Fq "${SYNTHETIC}" smoke-finding.out; then
+            echo "raw synthetic candidate appeared in scanner output" >&2
+            exit 1
+          fi
+
+          cd dist
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${OUT}" > "${OUT}.sha256"
+          else
+            shasum -a 256 "${OUT}" > "${OUT}.sha256"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: entlint-${{ matrix.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            Source: https://github.com/${{ github.repository }}/tree/${{ github.ref_name }}
+            License: MIT — see `LICENSE` in the tagged source.
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: artifacts/**/*

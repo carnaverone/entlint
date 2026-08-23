@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible entlint defect
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Never paste a real credential, token, private key, `.env` file, or unredacted scanner output. Use synthetic data only.
+  - type: input
+    id: version
+    attributes:
+      label: entlint version or commit
+      placeholder: "0.2.0 or commit SHA"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, and Nim version when relevant.
+      placeholder: "Ubuntu 24.04, x86_64, Nim 2.2.10"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Use only synthetic/non-sensitive values.
+      placeholder: |
+        Command:
+        entlint file fixture.txt --json
+
+        Synthetic fixture:
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I removed all real secrets, credentials, private data, and unredacted production findings from this report.
+          required: true
+        - label: I checked the current README and SECURITY.md.
+          required: true
